@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM Lab</title>
+<script>try { var t = localStorage.getItem("lab-theme"); if (t) document.documentElement.dataset.theme = t; if (localStorage.getItem("lab-present") === "1") document.documentElement.classList.add("present"); } catch (e) {}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="css/lab.css">
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three/three.module.js",
+  "three/addons/": "./vendor/three/addons/"
+} }
+</script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#tokens">LLM Lab</a>
+  <span class="muted small" id="tagline">What happens inside a language model, shown on a real one.</span>
+  <div class="tools">
+    <button class="status" id="status" type="button" title="Model server"><i></i><span>Connecting…</span></button>
+    <div class="seg" role="group" aria-label="Text size">
+      <button type="button" id="present" aria-pressed="false" title="Larger text for the projector">Projector</button>
+    </div>
+    <div class="seg" role="group" aria-label="Colour theme">
+      <button type="button" data-set-theme="light" aria-pressed="false">Day</button>
+      <button type="button" data-set-theme="dark" aria-pressed="false">Night</button>
+    </div>
+  </div>
+</header>
+<nav class="modules" aria-label="Demos"><ol id="nav"></ol></nav>
+<main id="main"></main>
+<footer>
+  <span>LLM Lab · built for teaching. All numbers come from the model running on the server.</span>
+  <span id="modelinfo"></span>
+</footer>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
