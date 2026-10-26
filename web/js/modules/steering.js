@@ -54,6 +54,18 @@ const CONCEPTS = [
     negative: ["People usually keep their promises.", "Lying is common.", "The rich pay most of the taxes.", "Everyone in the room stood up.", "We throw away a third of our food."],
     tests: ["We ought to help the poor.", "Many people are poor.", "Torture is forbidden by law.", "It would be good to rest.", "The train leaves at nine."],
   },
+  {
+    name: "Necessary ↔ contingent",
+    positive: ["A square has four sides.", "Water is H2O.", "Two plus two is four.", "Hesperus is Phosphorus.", "Gold has atomic number 79."],
+    negative: ["The standard metre bar is one metre long.", "Water is scarce in the desert.", "I am here now.", "Hesperus is visible tonight.", "Gold is found in Swiss rivers."],
+    tests: ["Nobody is taller than themselves.", "Elton John is Reginald Dwight.", "Elton John plays the piano.", "Mercury is the planet closest to the sun.", "The train leaves at nine."],
+  },
+  {
+    name: "A priori ↔ a posteriori",
+    positive: ["A square has four sides.", "I am here now.", "Two plus two is four.", "The standard metre bar is one metre long.", "All bachelors are unmarried."],
+    negative: ["Water is H2O.", "Water is scarce in the desert.", "Hesperus is Phosphorus.", "Hesperus is visible tonight.", "Gold has atomic number 79."],
+    tests: ["Yesterday came before today.", "If the café is closed, then it is closed.", "Elton John is Reginald Dwight.", "Mercury is the planet closest to the sun.", "The train leaves at nine."],
+  },
 ];
 
 const PROMPTS = [
@@ -238,6 +250,7 @@ export default {
           "The meter is a crude lie detector of sorts. What would it take for a reading like this to tell us what a model “really” believes?",
           "With the large set, the analytic ↔ synthetic meter puts “Seven plus five is twelve” and “Water is H2O” on the analytic side. Kant called the first synthetic a priori, Kripke the second necessary a posteriori. Is the model wrong, or does its direction track something else, such as how certain or how timeless a sentence sounds?",
           "Pushed towards normative, the model starts to preach even when asked about Zurich. Is there an “ought” direction in the model, and what would Hume say about getting it from examples of what people write?",
+          "Kripke separated what could not have been otherwise (necessary) from what can be known without looking (a priori). Built from his four kinds of truth, the two directions come out nearly independent, and new sentences mostly land in the right one of his four cells. The a priori direction is the more reliable one: it even recognises “Yesterday came before today”. Does the model grasp necessity, or only how a truth is usually known?",
         ],
       }),
     );
