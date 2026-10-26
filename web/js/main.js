@@ -1,4 +1,4 @@
-import { h } from "./ui.js";
+import { h, themedTitles } from "./ui.js";
 import { info, serverUrl, setServerUrl } from "./api.js";
 import tokens from "./modules/tokens.js";
 import embeddings from "./modules/embeddings.js";
@@ -14,7 +14,7 @@ const MODULES = [tokens, embeddings, forward, generate, attention, chat, reasoni
 const nav = document.getElementById("nav");
 const main = document.getElementById("main");
 MODULES.forEach((m, i) => {
-  nav.append(h("li", {}, h("a", { href: `#${m.id}` }, h("b", {}, String(i).padStart(2, "0")), h("span", {}, m.title))));
+  nav.append(h("li", {}, h("a", { href: `#${m.id}` }, h("b", {}, String(i + 1).padStart(2, "0")), h("span", {}, m.title))));
 });
 
 let cleanup = null;
@@ -30,6 +30,7 @@ function route() {
 }
 addEventListener("hashchange", route);
 route();
+themedTitles();
 
 // ---------------------------------------------------------------- theme and projector mode
 const root = document.documentElement;

@@ -118,7 +118,7 @@ export default {
     const lenS = slider("Thinking budget", { min: 100, max: 4000, step: 100, value: maxTok, fmt: (v) => `${v} tokens`, oninput: (v) => (maxTok = v) });
 
     main.append(
-      intro("Step 6 · Reasoning",
+      intro("Chapter 7 · Reasoning",
         "Thinking out loud, and editing the thoughts",
         "Reasoning models are trained to write a long scratchpad before they answer. The scratchpad is ordinary text that the model reads back while producing the answer. So we can pause it, rewrite it, and see whether the answer follows."),
       box("Question", { right: presets(QUESTIONS, (p) => { qIn.value = p.q; }, { active: QUESTIONS[0] }), body: [qIn, h("div", { class: "row" }, btnThink, btnPause, btnCont, btnAnswer, state), msg] }),
@@ -129,7 +129,7 @@ export default {
           box("For comparison: answer straight away", { right: btnPlain, body: [plain] }))),
       notes({
         math: [
-          "Still the same loop as in step 3. The reasoning lives between two special tokens, <code>&lt;think&gt;</code> and <code>&lt;/think&gt;</code>, and the answer comes after them. Each new token is predicted from the question <em>and</em> everything written so far, so the scratchpad becomes part of the input.",
+          "Still the same loop as in chapter 4. The reasoning lives between two special tokens, <code>&lt;think&gt;</code> and <code>&lt;/think&gt;</code>, and the answer comes after them. Each new token is predicted from the question <em>and</em> everything written so far, so the scratchpad becomes part of the input.",
           "Writing the steps out gives the model more computation: every token is another full pass through all its layers, and intermediate results can be stored in the text instead of in one pass's vectors.",
           "These models are trained with reinforcement learning: they try many reasoning paths on problems with checkable answers, and the paths that reach correct answers are made more likely.",
         ],

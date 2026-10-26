@@ -1,4 +1,4 @@
-import { h, intro, notes, box, tokSpan, presets, debounce, errorLine } from "../ui.js";
+import { h, intro, notes, box, tokSpan, INVISIBLE, presets, debounce, errorLine } from "../ui.js";
 import { post } from "../api.js";
 
 const EXAMPLES = [
@@ -11,6 +11,12 @@ const EXAMPLES = [
   { name: "Code", text: "def is_even(n):\n    return n % 2 == 0" },
   { name: "Emoji", text: "Socrates 🧔‍♂️ drank the hemlock 🍵☠️." },
 ];
+
+function tokTitle(t) {
+  if (t.bytes) return `token #${t.id} · part of a character, shown as its raw bytes`;
+  if (INVISIBLE.test(t.text)) return `token #${t.id} · contains an invisible character`;
+  return `token #${t.id}`;
+}
 
 export default {
   id: "tokens",
@@ -31,22 +37,24 @@ export default {
         const { tokens } = await post("/api/tokenize", { text });
         msg.replaceChildren();
         nTok.textContent = tokens.length;
-        chips.replaceChildren(...tokens.map((t) => tokSpan(t.text, { class: `tok${t.special ? " special" : ""}`, title: `token #${t.id}` })));
+        chips.replaceChildren(...tokens.map((t) => tokSpan(t.text, { class: `tok${t.special ? " special" : ""}`, title: tokTitle(t) }, t.bytes)));
         ids.replaceChildren(...tokens.map((t) => h("span", {}, t.id)));
       } catch (e) { errorLine(msg, e); }
     }, 150);
     input.addEventListener("input", run);
 
     main.append(
-      intro("Step 0 · Tokens",
-        "The model never sees letters or words",
+      intro("Chapter 1 · Tokens",
+        "What the model sees",
         "Before anything else, text is cut into tokens: common words, pieces of words, single characters. Each token is replaced by a number from a fixed list of about 150,000. From here on, the model only ever deals with these numbers."),
       h("div", { class: "stack" },
         box("Type anything", {
+          cls: "open",
           right: presets(EXAMPLES, (p) => { input.value = p.text; run(); }, { active: EXAMPLES[0] }),
           body: [input, msg],
         }),
         box("What the model receives", {
+          cls: "open",
           body: [
             h("div", { class: "stats" },
               h("div", { class: "stat" }, nChar, h("span", {}, "characters")),

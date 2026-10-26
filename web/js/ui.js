@@ -33,14 +33,42 @@ export function showTok(s) {
   return s.replace(/\n/g, "↵").replace(/\t/g, "⇥").replace(/ /g, "·");
 }
 
-export function tokSpan(text, attrs = {}) {
-  const el = h("span", { class: "tok", ...attrs });
+export const INVISIBLE = /(\p{Default_Ignorable_Code_Point})/u;
+const hex = (n, w) => n.toString(16).toUpperCase().padStart(w, "0");
+
+// Spaces as dots, newlines as ↵, invisible characters by their code point (U+FE0F).
+function appendText(el, text) {
   for (const part of text.split(/( +|\n)/)) {
     if (!part) continue;
     if (/^ +$/.test(part)) el.append(h("span", { class: "sp" }, "·".repeat(part.length)));
     else if (part === "\n") el.append(h("span", { class: "sp" }, "↵"));
-    else el.append(part);
+    else for (const bit of part.split(INVISIBLE)) {
+      if (!bit) continue;
+      if (INVISIBLE.test(bit)) el.append(h("span", { class: "cp" }, `U+${hex(bit.codePointAt(0), 4)}`));
+      else el.append(bit);
+    }
   }
+}
+
+// A token that holds only part of a character: its bytes in hex, any plain ASCII byte as text.
+function appendBytes(el, bytes) {
+  for (const b of bytes) {
+    if (b >= 0x20 && b < 0x7f) appendText(el, String.fromCharCode(b));
+    else el.append(h("span", { class: "byte" }, hex(b, 2)));
+  }
+}
+
+export function tokSpan(text, attrs = {}, bytes = null) {
+  const el = h("span", { class: "tok", ...attrs });
+  if (bytes) appendBytes(el, bytes);
+  else appendText(el, text);
+  return el;
+}
+
+export function svgEl(tag, attrs = {}, ...children) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  for (const c of children) el.append(c instanceof Node ? c : document.createTextNode(c));
   return el;
 }
 
@@ -116,14 +144,16 @@ export function field(label, control) {
   return h("label", { class: "field" }, h("span", {}, label), control);
 }
 
-export function presets(list, onPick, { active } = {}) {
+// With toggle, clicking the active preset again switches it off and calls onPick(null).
+export function presets(list, onPick, { active, toggle = false } = {}) {
   const wrap = h("div", { class: "chips" });
   for (const p of list) {
     const b = h("button", { class: "chip-btn", type: "button", "aria-pressed": p === active ? "true" : "false" }, p.name);
     b.addEventListener("click", () => {
+      const off = toggle && b.getAttribute("aria-pressed") === "true";
       wrap.querySelectorAll(".chip-btn").forEach((x) => x.setAttribute("aria-pressed", "false"));
-      b.setAttribute("aria-pressed", "true");
-      onPick(p);
+      b.setAttribute("aria-pressed", String(!off));
+      onPick(off ? null : p);
     });
     wrap.append(b);
   }
@@ -142,6 +172,30 @@ export function tip(html, ev) {
   if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - pad;
   tipEl.style.left = `${x}px`;
   tipEl.style.top = `${y}px`;
+}
+
+// Native title tooltips are drawn in the operating system's theme, not the page's. This shows them
+// in the page's own tooltip instead: each title moves to data-tip on first hover (and again whenever
+// the code sets a new title).
+export function themedTitles() {
+  let el = null, timer = 0, at = null;
+  const hide = () => { clearTimeout(timer); el = null; tip(null); };
+  document.addEventListener("pointerover", (e) => {
+    const t = e.target.closest?.("[title], [data-tip]");
+    if (t?.hasAttribute("title")) { t.dataset.tip = t.getAttribute("title"); t.removeAttribute("title"); }
+    if (t === el) return;
+    hide();
+    if (!t?.dataset.tip) return;
+    el = t; at = e;
+    timer = setTimeout(() => { if (el === t) tip(esc(t.dataset.tip).replace(/\n/g, "<br>"), at); }, 350);
+  });
+  document.addEventListener("pointermove", (e) => {
+    if (!el) return;
+    at = e;
+    if (tipEl && !tipEl.hidden) tip(esc(el.dataset.tip).replace(/\n/g, "<br>"), e);
+  });
+  document.addEventListener("pointerout", (e) => { if (el && !el.contains(e.relatedTarget)) hide(); });
+  document.addEventListener("pointerdown", hide);
 }
 
 export function esc(s) {

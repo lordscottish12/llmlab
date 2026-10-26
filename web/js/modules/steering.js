@@ -125,7 +125,7 @@ export default {
     meterBtn.addEventListener("click", measure);
 
     main.append(
-      intro("Step 7 · Steering",
+      intro("Chapter 8 · Steering",
         "Finding a concept inside the model, and turning it up",
         "Feed the model texts that differ in one respect, such as loving versus hateful sentences, and compare its internal vectors. The average difference is a direction in its space. Adding that direction while the model writes pushes everything it says that way, whatever it was asked."),
       h("div", { class: "grid2 even" },

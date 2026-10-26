@@ -132,7 +132,7 @@ export default {
     promptIn.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); reset(); } });
 
     main.append(
-      intro("Step 3 · From predictor to writer",
+      intro("Chapter 4 · From predictor to writer",
         "Pick a token, add it, predict again",
         "A model that only predicts the next token becomes a writer by running in a loop: choose one token from the distribution, append it to the text, and feed the longer text back in. Every chatbot answer is made this way, one token at a time."),
       h("div", { class: "grid2" },

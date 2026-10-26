@@ -1,4 +1,4 @@
-import { h, intro, notes, box, presets, errorLine, slider, showTok, pct, busy, cssVar, debounce, tip, esc } from "../ui.js";
+import { h, intro, notes, box, presets, errorLine, slider, showTok, pct, busy, cssVar, debounce, tip, esc, svgEl } from "../ui.js";
 import { post } from "../api.js";
 
 const EXAMPLES = [
@@ -16,7 +16,7 @@ export default {
     const toy = toyPanel();
     const real = realPanel();
     main.append(
-      intro("Step 4 · Attention",
+      intro("Chapter 5 · Attention",
         "How a word gathers information from the words before it",
         "Attention is the one place where tokens exchange information. Each token asks a question (its query), every earlier token offers a label (its key), and the better the match, the more of that token's content (its value) flows in. A model runs many of these in parallel, called heads, in every layer."),
       toy.el,
@@ -135,13 +135,6 @@ function toyPanel() {
         ],
       })),
   };
-}
-
-function svgEl(tag, attrs = {}, ...children) {
-  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-  for (const c of children) el.append(c instanceof Node ? c : document.createTextNode(c));
-  return el;
 }
 
 // ------------------------------------------------------------------ the real model

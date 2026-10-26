@@ -119,7 +119,7 @@ export default {
     const tempS = slider("Temperature", { min: 0, max: 1.5, step: 0.05, value: temp, fmt: (v) => v.toFixed(2), oninput: (v) => (temp = v) });
 
     main.append(
-      intro("Step 5 · Chat vs. document",
+      intro("Chapter 6 · Chat vs. document",
         "A chatbot is a document the model is completing",
         "A pre-trained model continues whatever text it is given, in whatever style the text suggests. Chat training teaches it one special kind of document: a conversation with markers for who is speaking. The system prompt is just more text at the top of that document."),
       h("div", { class: "grid2 even" },
@@ -141,7 +141,7 @@ export default {
       box(null, { body: [h("div", { class: "grid2 even", style: { gap: "1.5rem" } }, lenS, tempS)] }),
       notes({
         math: [
-          "Nothing new is computed here: both sides run exactly the loop from step 3. The difference is in the text that goes in, and in what the chat model was trained on afterwards.",
+          "Nothing new is computed here: both sides run exactly the loop from chapter 4. The difference is in the text that goes in, and in what the chat model was trained on afterwards.",
           { f: "&lt;|im_start|&gt;system\\n…&lt;|im_end|&gt;\\n&lt;|im_start|&gt;user\\n…&lt;|im_end|&gt;\\n&lt;|im_start|&gt;assistant\\n" },
           "<b>Pre-training</b>: predict the next token of trillions of tokens of web pages, books and code. <b>Post-training</b>: more training on example conversations written or rated by people (supervised fine-tuning, then reinforcement learning from feedback), so the model learns how “the assistant” in such documents behaves.",
           "“Assistant starts with” (prefilling) writes the first words of the reply for the model. It then continues as if it had written them itself.",

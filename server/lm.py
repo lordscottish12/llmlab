@@ -36,6 +36,22 @@ def pca3(x: np.ndarray) -> np.ndarray:
     return y / scale
 
 
+def _byte_decoder() -> dict[str, int]:
+    """Byte-level BPE vocabularies (GPT-2's, Qwen's) write each byte as a printable character. This maps them back."""
+    bs = [*range(ord("!"), ord("~") + 1), *range(ord("¡"), ord("¬") + 1), *range(ord("®"), ord("ÿ") + 1)]
+    cs = bs[:]
+    n = 0
+    for b in range(256):
+        if b not in bs:
+            bs.append(b)
+            cs.append(256 + n)
+            n += 1
+    return {chr(c): b for b, c in zip(bs, cs)}
+
+
+BYTE_DECODER = _byte_decoder()
+
+
 class LM:
     def __init__(self, role: str, spec: ModelSpec):
         self.role = role
@@ -130,9 +146,23 @@ class LM:
             s = self.tok.convert_ids_to_tokens(tid)
         return s
 
+    def raw_bytes(self, tid: int) -> list[int] | None:
+        """The bytes of a token that holds only part of a character (so has no text of its own), else None."""
+        if tid in self.tok.all_special_ids:
+            return None
+        form = self.tok.convert_ids_to_tokens(tid)
+        if not all(c in BYTE_DECODER for c in form):
+            return None
+        raw = bytes(BYTE_DECODER[c] for c in form)
+        try:
+            raw.decode("utf-8")
+            return None
+        except UnicodeDecodeError:
+            return list(raw)
+
     def tokenize(self, text: str) -> list[dict]:
         ids = self.encode(text)
-        return [{"id": i, "text": self.piece(i), "special": i in self.tok.all_special_ids} for i in ids]
+        return [{"id": i, "text": self.piece(i), "bytes": self.raw_bytes(i), "special": i in self.tok.all_special_ids} for i in ids]
 
     # ---------------------------------------------------------------- forward passes
 
@@ -163,7 +193,7 @@ class LM:
         return self.model.lm_head(self.model.model.norm(h)).float()
 
     @torch.no_grad()
-    def forward_pass(self, text: str, top: int = 5, slice_dims: int = 64) -> dict:
+    def forward_pass(self, text: str, top: int = 10, slice_dims: int = 64) -> dict:
         self.require()
         with self.lock:
             ids = self._ids(text)
@@ -176,11 +206,24 @@ class LM:
             normed = hs / (hs.abs().median(-1, keepdim=True).values * 1.4826).clamp_min(1e-6)
             # A fixed spread of dimensions, so the same tile always shows the same coordinates.
             dims = torch.linspace(0, d - 1, slice_dims).long().to(hs.device)
-            lens_rows = []
+            lens_rows, entropies = [], []
             for l in range(L1):
                 probs = torch.softmax(self.lens(hs[l]), -1)  # (n, V)
                 p, i = probs.topk(top, -1)
                 lens_rows.append((p.cpu().numpy(), i.cpu().numpy()))
+                entropies.append((-(probs * probs.clamp_min(1e-12).log2()).sum(-1)).cpu().numpy())
+            # Arrows: each vector as the logit lens reads it (after the final norm), projected onto the
+            # output directions of its own column's top two final predictions. The second direction is made
+            # perpendicular to the first, so the two axes span a proper plane.
+            top2 = torch.as_tensor(lens_rows[-1][1][:, :2], device=hs.device)  # (n, 2)
+            wa, wb = self.model.lm_head.weight[top2[:, 0]].float(), self.model.lm_head.weight[top2[:, 1]].float()
+            e1 = wa / wa.norm(dim=-1, keepdim=True)
+            e2 = wb - (wb * e1).sum(-1, keepdim=True) * e1
+            e2 = e2 / e2.norm(dim=-1, keepdim=True).clamp_min(1e-6)
+            nh = self.model.model.norm(hs.to(self.model.model.norm.weight.dtype)).float()  # (L+1, n, d)
+            arrows = torch.stack([(nh * e1).sum(-1), (nh * e2).sum(-1)], -1).cpu().numpy()  # (L+1, n, 2)
+            axes = top2.cpu().tolist()
+            del nh
             final = torch.softmax(self.lens(hs[-1][-1]), -1)
             entropy = float(-(final * final.clamp_min(1e-12).log2()).sum())
             fp, fi = final.topk(30)
@@ -204,12 +247,15 @@ class LM:
                         "norm": round(float(norms[l, pos]), 1),
                         "xyz": np.round(traj[l, pos], 3).tolist(),
                         "lens": [[self.piece(int(t)), round(float(pr), 4)] for pr, t in zip(*[a[pos] for a in lens_rows[l]])],
+                        "arrow": [round(float(v), 2) for v in arrows[l, pos]],
+                        "entropy": round(float(entropies[l][pos]), 3),
                     }
                     for pos in range(n)
                 ]
                 for l in range(L1)
             ],
             "final": [[self.piece(int(t)), float(pr)] for pr, t in zip(fp.tolist(), fi.tolist())],
+            "axes": [[self.piece(a), self.piece(b)] for a, b in axes],  # per column: the tokens its arrows are projected onto
             "entropy": entropy,
         }
         return result

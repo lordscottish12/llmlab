@@ -5,16 +5,16 @@ for an audience without a technical background (it was made for a philosophy cla
 shows the mechanism, explains the math in a few plain sentences, and ends with questions
 for discussion.
 
-| # | Demo | What it shows |
+| # | Chapter | What it shows |
 |---|------|---------------|
-| 0 | Tokens | Text is cut into tokens and replaced by numbers |
-| 1 | Embeddings | Words as points in space; `king − man + woman`; meaning axes; the same word in different sentences inside the LLM |
-| 2 | One prediction | A full forward pass in 3D: the residual stream rising through every layer, the logit lens, the output distribution, and a guess-the-next-word game |
-| 3 | Writing text | The generation loop, one click per token; greedy vs. random; temperature; forcing a token and branching |
-| 4 | Attention | A draggable query/key toy, then real attention arcs for every head, and a search for heads that show a pattern |
-| 5 | Chat vs. document | Base model vs. chat model; the raw chat template; system prompts; prefilling |
-| 6 | Reasoning | A thinking model's scratchpad, streamed; pause, edit, inject a thought, and let it continue or answer |
-| 7 | Steering | A concept direction from contrasting examples, a "concept meter", and adding the direction while the model writes |
+| 1 | Tokens | Text is cut into tokens and replaced by numbers |
+| 2 | Embeddings | Words as vectors (GloVe); `king − man + woman`; meaning axes; the same token in different sentences inside the LLM |
+| 3 | One prediction | A full forward pass in 3D: the residual stream rising through every layer, the logit lens, and the output distribution |
+| 4 | Writing text | The generation loop, one click per token; greedy vs. random; temperature; forcing a token and branching |
+| 5 | Attention | A draggable query/key toy, then real attention arcs for every head, and a search for heads that show a pattern |
+| 6 | Chat vs. document | Base model vs. chat model; the raw chat template; system prompts; prefilling |
+| 7 | Reasoning | A thinking model's scratchpad, streamed; pause, edit, inject a thought, and let it continue or answer |
+| 8 | Steering | A concept direction from contrasting examples, a "concept meter", and adding the direction while the model writes |
 
 ## Running it
 
@@ -22,7 +22,7 @@ Needs [uv](https://docs.astral.sh/uv/) and, for reasonable speed, an NVIDIA GPU.
 
 ```sh
 uv sync                                   # Python 3.12, PyTorch with CUDA, transformers
-uv run python scripts/prepare_glove.py    # word vectors for demo 1 (one-off, ~1 GB download)
+uv run python scripts/prepare_glove.py    # word vectors for chapter 2 (one-off, ~1 GB download)
 uv run python -m server                   # then open http://127.0.0.1:8000
 ```
 
@@ -34,7 +34,7 @@ the status indicator at the top right turns green when they are ready.
 The demos use two models of the same family: a **base** model (pre-trained only) and its
 **chat** sibling (post-trained, with a thinking mode). Qwen3 is used because it is a standard
 transformer, so attention can be shown in every layer. The newer Qwen3.5 small models replace
-three of every four attention layers with linear attention, which would break demo 4.
+three of every four attention layers with linear attention, which would break chapter 5.
 
 Pick a profile with `LLMLAB_PROFILE`:
 
