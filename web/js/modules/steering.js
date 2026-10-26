@@ -42,6 +42,18 @@ const CONCEPTS = [
     negative: ["Existence is not a predicate, since saying that a thing exists adds nothing to its concept.", "We have a moral obligation to others if and only if they have interests that can be set back.", "The meaning of a sentence is a function of the meanings of its parts.", "Every sentence has determinate truth conditions, though context may fix some of them.", "The body is a physical object, and the question is how mental states relate to its states."],
     tests: ["Thinking begins where certainty ends, in the openness of the question.", "If knowledge is justified true belief, Gettier cases are counterexamples.", "The train leaves at nine.", "The trace of the Other haunts every word I write.", "The sentence 'snow is white' is true if and only if snow is white."],
   },
+  {
+    name: "Analytic ↔ synthetic",
+    positive: ["All bodies are extended.", "All bachelors are unmarried.", "A week has seven days.", "Every effect has a cause.", "A vixen is a female fox."],
+    negative: ["All bodies are heavy.", "Most bachelors are under forty.", "A working week has grown shorter over the last century.", "Every flood in this valley follows heavy rain.", "Vixens give birth in early spring."],
+    tests: ["A pentagon has five sides.", "Pentagons are rare in nature.", "Seven plus five is twelve.", "Water is H2O.", "The train leaves at nine."],
+  },
+  {
+    name: "Normative ↔ descriptive",
+    positive: ["People ought to keep their promises.", "Lying is wrong.", "The rich should pay more taxes.", "Everyone deserves a fair trial.", "We should not waste food."],
+    negative: ["People usually keep their promises.", "Lying is common.", "The rich pay most of the taxes.", "Everyone in the room stood up.", "We throw away a third of our food."],
+    tests: ["We ought to help the poor.", "Many people are poor.", "Torture is forbidden by law.", "It would be good to rest.", "The train leaves at nine."],
+  },
 ];
 
 const PROMPTS = [
@@ -224,6 +236,8 @@ export default {
           "Steering changes what the model says without changing its input. Is this closer to persuading someone or to brain stimulation? What follows for responsibility?",
           "Try negative strength. Is “hate” simply “minus love” in this space? Is it in ours?",
           "The meter is a crude lie detector of sorts. What would it take for a reading like this to tell us what a model “really” believes?",
+          "With the large set, the analytic ↔ synthetic meter puts “Seven plus five is twelve” and “Water is H2O” on the analytic side. Kant called the first synthetic a priori, Kripke the second necessary a posteriori. Is the model wrong, or does its direction track something else, such as how certain or how timeless a sentence sounds?",
+          "Pushed towards normative, the model starts to preach even when asked about Zurich. Is there an “ought” direction in the model, and what would Hume say about getting it from examples of what people write?",
         ],
       }),
     );
