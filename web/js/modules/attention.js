@@ -265,6 +265,14 @@ function realPanel() {
 
   const form = h("form", { class: "row", style: { flexWrap: "nowrap" }, onsubmit: (e) => { e.preventDefault(); ex = { text: input.value }; start(); } }, input, h("button", { class: "btn primary", type: "submit" }, "Analyse"));
 
+  const arcsPanel = box("", {
+    body: [
+      h("p", { class: "small muted" }, "Click any word to see where it looks. Thicker, darker arcs carry more weight."),
+      arcs,
+      h("label", { class: "check" }, hideBox, "Hide attention to the first token (where heads park their attention when nothing else is relevant)")],
+  });
+  arcsPanel.querySelector("h3").replaceWith(arcsTitle); // the title changes with the selected head and word
+
   return {
     start,
     el: h("div", { class: "stack" },
@@ -273,12 +281,7 @@ function realPanel() {
         body: [form, msg],
       }),
       h("div", { class: "grid2" },
-        box(null, {
-          body: [arcsTitle,
-            h("p", { class: "small muted" }, "Click any word to see where it looks. Thicker, darker arcs carry more weight."),
-            arcs,
-            h("label", { class: "check" }, hideBox, "Hide attention to the first token (where heads park their attention when nothing else is relevant)")],
-        }),
+        arcsPanel,
         box("Find heads that…", {
           body: [
             h("div", { class: "row" }, h("span", { class: "small" }, "link the selected word to"), keySel, findPair),

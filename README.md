@@ -7,6 +7,7 @@ for discussion.
 
 | # | Chapter | What it shows |
 |---|------|---------------|
+| Intro | Llull's machine | Borges on Ramon Llull's thinking machine: three disks to turn by hand, loaded three ways |
 | 1 | Tokens | Text is cut into tokens and replaced by numbers |
 | 2 | Embeddings | Words as vectors (GloVe); `king − man + woman`; meaning axes; the same token in different sentences inside the LLM |
 | 3 | One prediction | A full forward pass in 3D: the residual stream rising through every layer, the logit lens, and the output distribution |

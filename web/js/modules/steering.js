@@ -1,5 +1,6 @@
 import { h, intro, notes, box, presets, errorLine, slider, busy } from "../ui.js";
 import { post, stream, info } from "../api.js";
+import { LARGE } from "./steering-sets.js";
 
 const NEUTRAL = [
   "The meeting has been moved to Thursday afternoon.",
@@ -49,6 +50,7 @@ export default {
   title: "Steering",
   mount(main) {
     let concept = structuredClone(CONCEPTS[0]);
+    let size = "small"; // which example set is loaded: the preset's few examples, or its large set of matched pairs
     let layer = 12, strength = 0.8, nLayers = 28;
     const ctrls = [];
 
@@ -58,18 +60,61 @@ export default {
     const outA = h("div", { class: "answer", style: { minHeight: "8rem" } });
     const outB = h("div", { class: "answer", style: { minHeight: "8rem" } });
     const msg = h("div");
-    const tagB = h("span", { class: "tag red" });
     const testsIn = h("textarea", { rows: 5, class: "sent" }, concept.tests.join("\n"));
-    const meter = h("div", { style: { display: "grid", gap: ".45rem" } });
+    const meter = h("div", { class: "meters" });
     const meterBtn = h("button", { class: "btn", type: "button" }, "Measure");
 
     const lines = (el) => el.value.split("\n").map((s) => s.trim()).filter(Boolean);
+
+    // Every line is one example; the counts make that visible.
+    const posCount = h("span", {}), negCount = h("span", {});
+    const count = () => {
+      const n = (el) => lines(el).length;
+      posCount.textContent = ` · ${n(posIn)} example${n(posIn) === 1 ? "" : "s"}`;
+      negCount.textContent = ` · ${n(negIn)} example${n(negIn) === 1 ? "" : "s"}`;
+    };
+    posIn.addEventListener("input", count);
+    negIn.addEventListener("input", count);
+
+    const sizeNote = h("p", { class: "small muted" });
+    const sizeSeg = h("div", { class: "seg", role: "group", "aria-label": "Which examples" },
+      h("button", { type: "button", "aria-pressed": "true", "data-s": "small" }, "Small set"),
+      h("button", { type: "button", "aria-pressed": "false", "data-s": "large" }, "Large set"));
+    // Fill both lists from the current preset, with its few examples or its large set of matched pairs.
+    function load() {
+      const large = size === "large" && LARGE[concept.name];
+      posIn.value = large ? large.map((p) => p[0]).join("\n") : concept.positive.join("\n");
+      negIn.value = large ? large.map((p) => p[1]).join("\n") : concept.negative.join("\n");
+      sizeSeg.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.s === size)));
+      sizeNote.textContent = large
+        ? `${large.length} matched pairs: line n of the second list is line n of the first, with the concept taken out. Averaging over many pairs leaves little but the concept itself.`
+        : "A few examples, to read and to change. Try your own, or switch to the large set for a cleaner direction.";
+      count();
+      meter.replaceChildren();
+      showScale();
+    }
+    sizeSeg.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      size = b.dataset.s;
+      load();
+    });
     const steer = (s) => ({ positive: lines(posIn), negative: lines(negIn), layer, strength: s });
 
     const layerS = slider("Layer", { min: 0, max: nLayers - 1, step: 1, value: layer, fmt: (v) => `${v + 1}`, oninput: (v) => (layer = v) });
-    const strengthS = slider("Strength", { min: -2, max: 2, step: 0.05, value: strength, fmt: (v) => v.toFixed(2), oninput: (v) => { strength = v; tagB.textContent = label(); } });
-    const label = () => (strength >= 0 ? `pushed towards the first list ×${strength.toFixed(2)}` : `pushed towards the second list ×${(-strength).toFixed(2)}`);
-    tagB.textContent = label();
+    const strengthS = slider("Strength", { min: -2, max: 2, step: 0.05, value: strength, fmt: (v) => v.toFixed(2), oninput: (v) => { strength = v; showScale(); } });
+    // A scale above the slider's track: which list each end pushes towards, with the current side highlighted.
+    const scaleL = h("span", {}), scaleM = h("span", {}, "neutral"), scaleR = h("span", {});
+    strengthS.prepend(h("div", { class: "scale" }, scaleL, scaleM, scaleR));
+    strengthS.classList.add("scaled");
+    function showScale() {
+      const [a, b] = concept.name.includes("↔") ? concept.name.split(/\s*↔\s*/) : [concept.name, "away from it"];
+      scaleL.textContent = `← 2nd list: ${b}`;
+      scaleR.textContent = `1st list: ${a} →`;
+      scaleL.classList.toggle("on", strength < 0);
+      scaleM.classList.toggle("on", strength === 0);
+      scaleR.classList.toggle("on", strength > 0);
+    }
 
     info().then((d) => {
       const m = d.models.chat;
@@ -113,11 +158,11 @@ export default {
         meter.replaceChildren(...texts.map((t, i) => {
           const s = Math.max(-1.5, Math.min(1.5, r.scores[i]));
           const left = s < 0 ? 50 + (s / 1.5) * 50 : 50, width = Math.abs(s / 1.5) * 50;
-          return h("div", { style: { display: "grid", gap: ".15rem" } },
+          // One line per sentence: the sentence, its bar, its score.
+          return h("div", { class: "hbar" },
             h("span", { class: "sent" }, t),
-            h("div", { class: "hbar" },
-              h("div", { class: "meter" }, h("span", { class: "mid" }), h("span", { class: "fill", style: { left: `${left}%`, width: `${width}%`, background: s >= 0 ? "var(--pos)" : "var(--neg)" } })),
-              h("span", { class: "mono small", style: { textAlign: "right" } }, r.scores[i].toFixed(2))));
+            h("div", { class: "meter" }, h("span", { class: "mid" }), h("span", { class: "fill", style: { left: `${left}%`, width: `${width}%`, background: s >= 0 ? "var(--pos)" : "var(--neg)" } })),
+            h("span", { class: "mono small", style: { textAlign: "right" } }, r.scores[i].toFixed(2)));
         }));
       } catch (e) { errorLine(meter, e); }
       busy(meterBtn, false);
@@ -130,10 +175,12 @@ export default {
         "Feed the model texts that differ in one respect, such as loving versus hateful sentences, and compare its internal vectors. The average difference is a direction in its space. Adding that direction while the model writes pushes everything it says that way, whatever it was asked."),
       h("div", { class: "grid2 even" },
         box("1 · Define the concept by examples", {
-          right: presets(CONCEPTS, (p) => { concept = structuredClone(p); posIn.value = p.positive.join("\n"); negIn.value = p.negative.join("\n"); testsIn.value = p.tests.join("\n"); meter.replaceChildren(); }, { active: CONCEPTS[0] }),
+          right: presets(CONCEPTS, (p) => { concept = structuredClone(p); testsIn.value = p.tests.join("\n"); load(); }, { active: CONCEPTS[0] }),
           body: [
-            h("label", { class: "field" }, h("span", {}, "Texts that have it, one per line"), posIn),
-            h("label", { class: "field" }, h("span", {}, "Texts that lack it (or have the opposite)"), negIn),
+            h("label", { class: "field" }, h("span", {}, "Texts that have it, one example per line", posCount), posIn),
+            h("label", { class: "field" }, h("span", {}, "Texts that lack it (or have the opposite)", negCount), negIn),
+            sizeSeg,
+            sizeNote,
             layerS,
           ],
         }),
@@ -146,19 +193,21 @@ export default {
           ],
         })),
       box("3 · Write with it: add the direction while the model answers", {
+        cls: "gap-above",
         right: presets(PROMPTS, (p) => { promptIn.value = p.text; }, { active: PROMPTS[0] }),
         body: [
           h("div", { class: "grid2 even", style: { gap: "1rem" } }, h("label", { class: "field" }, h("span", {}, "Ask the chat model"), promptIn), h("div", { style: { display: "grid", gap: ".6rem", alignContent: "end" } }, strengthS, h("div", { class: "row" }, genBtn))),
           msg,
           h("div", { class: "grid2 even" },
             box("Normal", { body: [outA] }),
-            box("Steered", { right: tagB, body: [outB] })),
+            box("Steered", { body: [outB] })),
         ],
       }),
       notes({
         math: [
           "Take the vector after one layer for every token of every example, and average them: one average for the first list, one for the second. Their difference is the <em>steering vector</em>.",
           { f: "direction = mean(vectors | first list) − mean(vectors | second list)" },
+          "With five examples a side, the direction also picks up whatever else those few sentences happen to share: certain words, a length, a topic. The large sets use about 100 matched pairs, sentences that differ only in the concept, so those accidents average out.",
           "The concept meter projects a new sentence's average vector onto that direction (a dot product), rescaled so the two lists sit at +1 and −1.",
           "To steer, we add the direction, times the strength, to the vector of every token at that layer, at every step of writing. Strength is measured against the typical length of the vectors there: 1.0 adds an arrow as long as the vector itself. Too much, and the text falls apart.",
           { f: "vector_layer ← vector_layer + strength × direction" },
@@ -171,6 +220,7 @@ export default {
         ],
       }),
     );
+    load();
     return () => ctrls.forEach((c) => c.abort());
   },
 };

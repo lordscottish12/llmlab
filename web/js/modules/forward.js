@@ -1,4 +1,4 @@
-import { h, intro, notes, box, errorLine, esc, busy, cssVar, divergingColor, probBars, showTok, tip, pct, svgEl } from "../ui.js";
+import { h, intro, notes, box, errorLine, esc, busy, cssVar, probBars, showTok, tip, pct, svgEl } from "../ui.js";
 import { post } from "../api.js";
 import { createStage } from "../scene.js";
 
@@ -6,7 +6,6 @@ const PROMPT = "The capital of France is";
 
 const DX = 1.15; // distance between token columns
 const DY = 0.32; // distance between layers
-const BAR = 1.8; // height of a 100% output bar
 const TILE = 0.82;
 
 export default {
@@ -21,13 +20,14 @@ export default {
       h("span", { class: "hint" }, "Drag to turn · scroll to zoom · hover a tile to read it as a prediction · click a tile or token to select it"));
     const caption = h("p", { class: "small muted" });
     const legend = h("div", { class: "legend" });
+    const topBtn = h("button", { class: "btn small", type: "button", title: "Look straight down on the selected token's column", onclick: () => data && topView() }, "Top view");
     const stage = createStage(stageEl, { camera: [6, 7, 12], target: [3, 5, 0], fov: 40 });
     const { THREE } = stage;
     const world = new THREE.Group();
     stage.scene.add(world);
     let tiles = []; // meshes with userData {l, pos}
     let floors = [];
-    let floorLabels = [], tokenLabels = [];
+    let tokenLabels = [];
     const selGroup = new THREE.Group(); // everything that follows the selected token
 
     const input = h("input", { type: "text", value: PROMPT, "aria-label": "Prompt" });
@@ -35,10 +35,10 @@ export default {
     const form = h("form", { class: "row", style: { flexWrap: "nowrap" }, onsubmit: (e) => { e.preventDefault(); run(); } }, input, runBtn);
     const msg = h("div");
     const finalBox = h("div", {}, h("p", { class: "small muted" }, "Run the model to see its prediction."));
-    const finalPanel = box("The output: next-token probabilities", { body: [finalBox], cls: "open" });
+    const finalPanel = box("The output: next-token probabilities", { body: [finalBox] });
     const finalTitle = finalPanel.querySelector("h3");
     const lensBox = h("div", { class: "scroll fit" });
-    const lensPanel = box("How the guess forms, layer by layer", { body: [h("p", { class: "small muted" }, "Click any tile in the picture to read that vector instead."), lensBox], cls: "open grow" });
+    const lensPanel = box("How the guess forms, layer by layer", { body: [h("p", { class: "small muted" }, "Click any tile in the picture to read that vector instead."), lensBox], cls: "grow" });
     const lensTitle = lensPanel.querySelector("h3");
     const flow = h("p", { class: "small muted" });
     const arrowSvg = svgEl("svg", { viewBox: "0 0 320 320", role: "img", "aria-label": "The selected token's vector after every layer, as arrows" });
@@ -47,7 +47,7 @@ export default {
       if (t && data) select(+t.dataset.l, selected[1]);
     });
     const arrowNote = h("p", { class: "small muted" });
-    const arrowPanel = box("Seen from two directions", { body: [h("div", { class: "split" }, h("div", { class: "toy" }, arrowSvg), arrowNote)], cls: "open" });
+    const arrowPanel = box("Seen from two directions", { body: [h("div", { class: "split" }, h("div", { class: "toy" }, arrowSvg), arrowNote)] });
     const arrowTitle = arrowPanel.querySelector("h3");
 
     async function run() {
@@ -64,28 +64,43 @@ export default {
       busy(runBtn, false);
     }
 
-    function tileTexture(values) {
-      const n = Math.round(Math.sqrt(values.length));
-      const buf = new Uint8Array(n * n * 4);
-      values.forEach((v, i) => {
-        const [r, g, b] = divergingColor(v, 2);
-        buf.set([r, g, b, 255], i * 4);
-      });
-      const tex = new THREE.DataTexture(buf, n, n);
-      tex.magFilter = THREE.NearestFilter;
+    // A tile: transparent, with only a faint cross and the arrow, so that from above the
+    // arrows of all layers can be seen through each other. Same projection and colours as the 2D plot.
+    function arrowTexture(l, p) {
+      const [x, y] = data.cells[l][p].arrow;
+      const scale = Math.max(...data.cells.map((row) => Math.hypot(...row[p].arrow))) || 1;
+      const N = 128, c = document.createElement("canvas");
+      c.width = c.height = N;
+      const g = c.getContext("2d");
+      g.strokeStyle = cssVar("--line");
+      g.lineWidth = 2;
+      g.beginPath(); g.moveTo(N / 2, 8); g.lineTo(N / 2, N - 8); g.moveTo(8, N / 2); g.lineTo(N - 8, N / 2); g.stroke();
+      const r = (N / 2 - 8) / scale, tx = N / 2 + x * r, ty = N / 2 - y * r;
+      g.strokeStyle = g.fillStyle = data.cells[l][p].lens[0][0] === data.axes[p][0] ? cssVar("--accent") : cssVar("--ink");
+      g.lineWidth = 5;
+      g.lineCap = "round";
+      g.beginPath(); g.moveTo(N / 2, N / 2); g.lineTo(tx, ty); g.stroke();
+      g.beginPath(); g.arc(tx, ty, 7, 0, 2 * Math.PI); g.fill();
+      const tex = new THREE.CanvasTexture(c);
       tex.colorSpace = THREE.SRGBColorSpace;
-      tex.needsUpdate = true;
       return tex;
+    }
+
+    // Straight down onto the selected token's column, close enough that its top tile fills the width; lower
+    // floors look smaller because they are further away. (A tiny step off the axis keeps the orbit controls happy.)
+    function topView() {
+      const top = (data.layers + 1) * DY, half = TILE * 0.75, x = selected[1] * DX;
+      const d = half / (Math.tan((stage.camera.fov * Math.PI) / 360) * stage.camera.aspect);
+      stage.controls.target.set(x, 0, 0);
+      stage.camera.position.set(x, top + d, 0.001);
     }
 
     function build() {
       stage.clear(world);
       tiles = [];
       floors = [];
-      floorLabels = [];
       const n = data.tokens.length, L = data.layers;
-      const width = (n - 1) * DX;
-      const line = cssVar("--line"), ink = cssVar("--ink"), muted = cssVar("--muted");
+      const line = cssVar("--line");
 
       // Residual stream: one vertical line per token, from embedding to output.
       const pipeMat = new THREE.LineBasicMaterial({ color: line });
@@ -97,17 +112,8 @@ export default {
       for (let l = 0; l <= L; l++) {
         const floor = new THREE.Group();
         floor.position.y = l * DY;
-        // A thin glass plate per layer: the block that reads the whole row and writes back into it.
-        if (l > 0) {
-          const plate = new THREE.Mesh(
-            new THREE.BoxGeometry(width + DX, 0.012, TILE + 0.25),
-            new THREE.MeshBasicMaterial({ color: ink, transparent: true, opacity: 0.05, depthWrite: false }));
-          plate.position.set(width / 2, -DY / 2, 0);
-          floor.add(plate);
-        }
         for (let p = 0; p < n; p++) {
-          const c = data.cells[l][p];
-          const m = new THREE.Mesh(new THREE.PlaneGeometry(TILE, TILE), new THREE.MeshBasicMaterial({ map: tileTexture(c.v), side: THREE.DoubleSide, transparent: true }));
+          const m = new THREE.Mesh(new THREE.PlaneGeometry(TILE, TILE), new THREE.MeshBasicMaterial({ map: arrowTexture(l, p), side: THREE.DoubleSide, transparent: true, depthWrite: false }));
           m.rotation.x = -Math.PI / 2;
           m.position.set(p * DX, 0, 0);
           m.userData = { l, pos: p };
@@ -116,10 +122,6 @@ export default {
         }
         const name = l === 0 ? "embedding" : l === L ? `layer ${l} · output` : `layer ${l}`;
         if (l === 0 || l === L || l % 4 === 0) floor.add(stage.label(name, "llabel", [-0.9, 0, 0]));
-        // What this layer would predict for the selected token if the model stopped here (filled in by renderSelection).
-        const lab = stage.label("", "llabel", [width + 1.15, 0, 0]);
-        floor.add(lab);
-        floorLabels.push(lab);
         world.add(floor);
         floors.push(floor);
       }
@@ -135,33 +137,17 @@ export default {
       });
       world.add(selGroup);
 
-      // Fit the whole tower, from the token labels to the output bars, into view.
-      // Room above the tower for a full-height bar and its label, whichever token is selected.
-      const yTop = (L + 1) * DY + BAR + 0.9, yBottom = -0.6;
-      const mid = new THREE.Vector3(width / 2 + 0.6, (yTop + yBottom) / 2, 0);
-      stage.controls.target.copy(mid);
-      const vfov = (stage.camera.fov * Math.PI) / 180 / 2;
-      const hfov = Math.atan(Math.tan(vfov) * stage.camera.aspect);
-      const dist = 1.15 * Math.max((yTop - yBottom) / 2 / Math.tan(vfov), (width + 4) / 2 / Math.tan(hfov));
-      stage.camera.position.set(mid.x + dist * 0.28, mid.y + dist * 0.18, dist * 0.95);
       renderSelection();
+      topView();
       flow.textContent = `${data.tokens.length} tokens enter at the bottom. Each becomes a vector of ${data.hidden.toLocaleString()} numbers. Each of the ${data.layers} layers reads all the vectors and adds a little to each. At the top, the last vector is turned into a probability for every token in the vocabulary.`;
     }
 
-    // The selected token's column at full strength, the others faded; the labels on the right and the
-    // bars on top show what the selected token's vector predicts.
+    // The selected token's column at full strength, the others faded, and its axes labelled.
     function renderSelection() {
       const [sl, pos] = selected;
-      const n = data.tokens.length, L = data.layers, width = (n - 1) * DX;
-      const ink = cssVar("--ink"), muted = cssVar("--muted"), acc = cssVar("--accent");
+      const acc = cssVar("--accent");
       tiles.forEach((t) => { t.material.opacity = t.userData.pos === pos ? 1 : 0.3; });
       tokenLabels.forEach((el, p) => el.classList.toggle("sel", p === pos));
-      floorLabels.forEach((lab, l) => {
-        const [t, p] = data.cells[l][pos].lens[0];
-        lab.element.textContent = `${showTok(t)}  ${pct(p)}`;
-        lab.element.style.color = p > 0.25 ? acc : muted;
-        lab.element.style.fontWeight = p > 0.25 ? "700" : "500";
-      });
 
       stage.clear(selGroup);
       const r = (TILE / 2) * 1.08;
@@ -169,23 +155,14 @@ export default {
         new THREE.BufferGeometry().setFromPoints([[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([x, z]) => new THREE.Vector3(pos * DX + x * r, sl * DY + 0.003, z * r))),
         new THREE.LineBasicMaterial({ color: acc })));
       const tok = `“${showTok(data.tokens[pos])}”`;
-      selGroup.add(stage.label(pos === n - 1 ? "if it stopped here, it would say:" : `${tok}, if it stopped here:`, "llabel", [width + 1.15, (L + 1) * DY, 0]));
+      // The two axes, labelled on the selected tile: → is the final answer, ↑ (towards the back) the runner-up.
+      const [ax, ay] = data.axes[pos].map((t) => `“${showTok(t)}”`);
+      const right = stage.label(`→ ${ax}`, "llabel", [pos * DX + TILE / 2 - 0.12, sl * DY, 0.07]); // inside the tile, so the top view shows it
+      right.element.style.color = acc;
+      selGroup.add(right, stage.label(`↑ ${ay}`, "llabel", [pos * DX, sl * DY, -TILE / 2 - 0.12]));
 
-      // Bars above the selected token: what the model expects right after it.
-      const top = data.cells[L][pos].lens.slice(0, 5);
-      const y0 = (L + 1) * DY + 0.25;
-      top.forEach(([t, p], i) => {
-        const hgt = Math.max(0.02, p * BAR);
-        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.26, hgt, 0.26), new THREE.MeshStandardMaterial({ color: i === 0 ? acc : ink, roughness: 0.7 }));
-        const x = pos * DX + (i - (top.length - 1) / 2) * 0.42;
-        bar.position.set(x, y0 + hgt / 2, 0);
-        selGroup.add(bar);
-        if (i < 3) selGroup.add(stage.label(h("span", {}, showTok(t), h("small", {}, pct(p))), "plabel", [x, y0 + hgt + 0.25, 0]));
-      });
-      caption.textContent = pos === n - 1
-        ? `Bars on top: the model's output, what it expects after ${tok}.`
-        : `Bars on top: what the model expects after ${tok}. The text actually goes on with “${showTok(data.tokens[pos + 1])}”.`;
-      legend.replaceChildren(h("span", {}, h("span", { class: "ramp" }), "  negative · zero · positive value"), h("span", {}, `Each tile shows 64 of the vector's ${data.hidden.toLocaleString("en")} numbers, laid out in a square.`));
+      caption.textContent = `Each tile shows a vector as an arrow, seen from the directions of its column's two final top answers. Turn the tower to look down through all the layers of ${tok} at once; "Top view" brings you back.`;
+      legend.replaceChildren(h("span", {}, `Each arrow is a whole vector of ${data.hidden.toLocaleString("en")} numbers. Red: at this layer, the top guess is already the column's final answer.`));
       renderArrows();
     }
 
@@ -302,12 +279,12 @@ export default {
       intro("Chapter 3 · One forward pass",
         "From a sentence to a probability for every possible next token",
         "This is the only thing the model does: read the text so far, and output how likely each token is to come next. Below you see the real numbers from one pass, bottom to top."),
-      h("div", { class: "grid2 spaced" },
+      h("div", { class: "grid2" },
         h("div", { class: "stack" },
-          box("Inside the model", { cls: "open", body: [caption, stageEl, legend, flow] }),
+          box("Inside the model", { right: topBtn, body: [caption, stageEl, legend, flow] }),
           arrowPanel),
         h("div", { class: "stack fill" },
-          box("Prompt", { cls: "open", body: [form, msg] }),
+          box("Prompt", { body: [form, msg] }),
           finalPanel,
           lensPanel)),
       notes({

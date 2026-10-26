@@ -220,7 +220,7 @@ export default {
     }
 
     const nbOut = h("div", { class: "probs" });
-    const nbBox = box("Nearest words", { body: [nbOut], cls: "open" });
+    const nbBox = box("Nearest words", { body: [nbOut] });
     const nbTitle = nbBox.querySelector("h3");
     let selected = null;
 
@@ -294,12 +294,11 @@ export default {
       intro("Chapter 2 · Embeddings",
         "Words as vectors in a space of meaning",
         "A language model turns each token into a vector: a long list of numbers, which you can picture as an arrow in a space with hundreds or thousands of dimensions. Training makes tokens that occur in similar contexts point in similar directions, and directions in that space can come to stand for things like gender, tense or capital-of. The picture shows this with GloVe, a simpler model that gives each whole word one vector, and marks only where each arrow ends. Further down: the language model's own vectors."),
-      h("div", { class: "grid2 spaced" },
-        box([h("span", { class: "term", title: GLOVE }, "GloVe"), ": 300 dimensions, projected onto 3"], { right: methodSeg, body: [stageEl], cls: "flush open" }),
+      h("div", { class: "grid2" },
+        box([h("span", { class: "term", title: GLOVE }, "GloVe"), ": 300 dimensions, projected onto 3"], { right: methodSeg, body: [stageEl], cls: "flush" }),
         h("div", { class: "stack" },
-          box("Word sets", { body: [presets(SETS, pickSet, { active: SETS[0], toggle: true }), wordsBox, addForm, axesInfo, msg], cls: "open" }),
+          box("Word sets", { body: [presets(SETS, pickSet, { active: SETS[0], toggle: true }), wordsBox, addForm, axesInfo, msg] }),
           box("Word arithmetic", {
-            cls: "open",
             body: [exprForm, h("label", { class: "check" }, hideInputs, "Leave out the words I typed"), exprOut],
           }),
           nbBox)),
@@ -413,7 +412,6 @@ function contextualPanel() {
   const modelName = h("span", {}, "the LLM");
   info().then((d) => { if (d.models.base?.label) modelName.textContent = d.models.base.label; }).catch(() => {});
   const el = box(["The same token, in different sentences, inside ", modelName], {
-    cls: "open",
     right: presets(CTX_SETS, (p) => { current = structuredClone(p); wordIn.value = p.word; sentIn.value = p.sentences.join("\n"); run(); }, { active: CTX_SETS[0] }),
     body: [
       h("p", { class: "muted" }, "Above, each word has one fixed vector. A language model starts the same way: its first step looks up one fixed vector per token, so the token for “bank” starts out identical in every sentence. Then every layer rebuilds each token's vector from its surroundings. Here we read the vector halfway up the model, in each sentence, and compare. Warm cells: the model treats the two uses as similar. A word that is split into several tokens gets the average of their vectors."),
@@ -528,10 +526,9 @@ function dotPanel() {
   render();
 
   return {
-    el: h("div", { class: "grid2 even spaced" },
-      box("Measuring similarity: the dot product", { body: [h("div", { class: "toy" }, svg)], cls: "open" }),
+    el: h("div", { class: "grid2 even" },
+      box("Measuring similarity: the dot product", { body: [h("div", { class: "toy" }, svg)] }),
       box("Two ways to get the same number", {
-        cls: "open",
         right: h("div", { class: "chips" }, action("Same direction", turnB(0)), action("At right angles", turnB(Math.PI / 2)), action("Opposite", turnB(Math.PI)), action("Make both length 1", unit)),
         body: [
           h("p", { class: "muted" }, "The dot product multiplies two vectors number by number and adds up. It grows when the arrows point the same way, and also when they get longer. In the picture, the dashed line drops b onto the line through a: the dot product is the length of a times the length of that shadow (negative when the shadow falls behind). Divide by both lengths and only the direction is left: the cosine similarity."),

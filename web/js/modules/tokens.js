@@ -49,12 +49,10 @@ export default {
         "Before anything else, text is cut into tokens: common words, pieces of words, single characters. Each token is replaced by a number from a fixed list of about 150,000. From here on, the model only ever deals with these numbers."),
       h("div", { class: "stack" },
         box("Type anything", {
-          cls: "open",
           right: presets(EXAMPLES, (p) => { input.value = p.text; run(); }, { active: EXAMPLES[0] }),
           body: [input, msg],
         }),
         box("What the model receives", {
-          cls: "open",
           body: [
             h("div", { class: "stats" },
               h("div", { class: "stat" }, nChar, h("span", {}, "characters")),

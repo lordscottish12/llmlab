@@ -6,6 +6,7 @@ demos can show that a "chat" is just a text document with a particular format.
 
 import hashlib
 import math
+import random
 import threading
 import time
 from contextlib import contextmanager
@@ -193,7 +194,7 @@ class LM:
         return self.model.lm_head(self.model.model.norm(h)).float()
 
     @torch.no_grad()
-    def forward_pass(self, text: str, top: int = 10, slice_dims: int = 64) -> dict:
+    def forward_pass(self, text: str, top: int = 10) -> dict:
         self.require()
         with self.lock:
             ids = self._ids(text)
@@ -201,11 +202,6 @@ class LM:
                 self.model(input_ids=ids, use_cache=False)
             hs = torch.stack([s.float() for s in states])  # (L+1, n, d)
             L1, n, d = hs.shape
-            # Scale each vector by its typical entry (median size), so that the few huge entries some
-            # models carry do not wash out all the others in the picture.
-            normed = hs / (hs.abs().median(-1, keepdim=True).values * 1.4826).clamp_min(1e-6)
-            # A fixed spread of dimensions, so the same tile always shows the same coordinates.
-            dims = torch.linspace(0, d - 1, slice_dims).long().to(hs.device)
             lens_rows, entropies = [], []
             for l in range(L1):
                 probs = torch.softmax(self.lens(hs[l]), -1)  # (n, V)
@@ -227,10 +223,8 @@ class LM:
             final = torch.softmax(self.lens(hs[-1][-1]), -1)
             entropy = float(-(final * final.clamp_min(1e-12).log2()).sum())
             fp, fi = final.topk(30)
-            traj = pca3(normed.reshape(L1 * n, d).cpu().numpy()).reshape(L1, n, 3)
-            vals = np.round(normed[:, :, dims].cpu().numpy(), 2)  # copy to the CPU once, not per tile
             norms = hs.norm(dim=-1).cpu().numpy()
-            del hs, normed, final
+            del hs, final
         if torch.cuda.is_available():
             torch.cuda.empty_cache()  # the logit lens briefly needs a lot of memory; give it back
 
@@ -239,13 +233,10 @@ class LM:
             "tokens": tokens,
             "layers": L1 - 1,
             "hidden": d,
-            "slice_dims": dims.tolist(),
             "cells": [
                 [
                     {
-                        "v": vals[l, pos].tolist(),
                         "norm": round(float(norms[l, pos]), 1),
-                        "xyz": np.round(traj[l, pos], 3).tolist(),
                         "lens": [[self.piece(int(t)), round(float(pr), 4)] for pr, t in zip(*[a[pos] for a in lens_rows[l]])],
                         "arrow": [round(float(v), 2) for v in arrows[l, pos]],
                         "entropy": round(float(entropies[l][pos]), 3),
@@ -278,7 +269,19 @@ class LM:
             ],
             "entropy": entropy,
             "rest": max(0.0, 1.0 - float(p.sum())),
+            # One token drawn with no weighting at all, the way Llull's disks combine: every ordinary token in
+            # the vocabulary equally likely. Its probability and rank show what the model makes of it.
+            "uniform": self._uniform(raw),
         }
+
+    def _uniform(self, raw: torch.Tensor) -> dict:
+        # Only tokens that are whole pieces of text: the ~1% that hold part of a character cannot be
+        # appended to the text on their own. The list is built once, on first use.
+        if not hasattr(self, "_whole"):
+            self._whole = [i for i in range(self.tok.vocab_size) if "�" not in self.tok.decode([i])]
+        u = random.choice(self._whole)
+        return {"id": u, "text": self.piece(u), "p": float(raw[u]), "rank": int((raw > raw[u]).sum()) + 1,
+                "of": self.tok.vocab_size, "pool": len(self._whole)}
 
     @torch.no_grad()
     def continuation_logprob(self, prefix: str, continuation: str) -> dict:
@@ -348,17 +351,41 @@ class LM:
 
     # ---------------------------------------------------------------- steering
 
-    @torch.no_grad()
     def mean_state(self, texts: list[str], layer: int) -> torch.Tensor:
+        """The residual state after `layer`, averaged over each text's tokens and then over the texts."""
+        return self.text_states(texts, layer).mean(0)
+
+    @torch.no_grad()
+    def text_states(self, texts: list[str], layer: int, batch: int = 16) -> torch.Tensor:
+        """For each text, its residual state after `layer` averaged over its tokens: (texts, hidden).
+
+        Texts go through the model in batches, padded on the right: a token only attends to earlier tokens,
+        so the padding leaves the real tokens' states unchanged, and it is left out of the average.
+        """
+        texts = [t for t in texts if t.strip()]
+        if not texts:
+            raise ValueError("Type some text first.")
+        got: list[torch.Tensor] = []
+        hook = self.layers[layer].register_forward_hook(lambda m, i, o: got.append(o[0] if isinstance(o, tuple) else o))
+        pad = self.tok.pad_token_id if self.tok.pad_token_id is not None else self.tok.eos_token_id
         acc = []
-        for t in texts:
-            with self.lock:
-                with self._capture() as states:
-                    self.model(input_ids=self._ids(t), use_cache=False)
-            s = states[layer + 1].float()
-            # The first token carries a few huge values that have nothing to do with the text; skip it.
-            acc.append((s[1:] if len(s) > 1 else s).mean(0))
-        return torch.stack(acc).mean(0)
+        try:
+            for k in range(0, len(texts), batch):
+                ids = [self.encode(t)[:MAX_CONTEXT] for t in texts[k : k + batch]]
+                n = max(len(i) for i in ids)
+                x = torch.tensor([i + [pad] * (n - len(i)) for i in ids], device=self.device)
+                mask = torch.tensor([[1] * len(i) + [0] * (n - len(i)) for i in ids], device=self.device)
+                got.clear()
+                with self.lock:
+                    self.model(input_ids=x, attention_mask=mask, use_cache=False)
+                states = got[0].float()  # (batch, n, d)
+                for j, i in enumerate(ids):
+                    s = states[j, : len(i)]
+                    # The first token carries a few huge values that have nothing to do with the text; skip it.
+                    acc.append((s[1:] if len(s) > 1 else s).mean(0))
+        finally:
+            hook.remove()
+        return torch.stack(acc)
 
     def steer_vector(self, positive: list[str], negative: list[str], layer: int) -> torch.Tensor:
         """Difference of mean residual states: "what changes inside the model" between two kinds of text."""
@@ -382,10 +409,7 @@ class LM:
     @torch.no_grad()
     def project(self, texts: list[str], vec: torch.Tensor, layer: int) -> list[float]:
         unit = vec / vec.norm()
-        out = []
-        for t in texts:
-            out.append(float(self.mean_state([t], layer) @ unit))
-        return out
+        return (self.text_states(texts, layer) @ unit).tolist()
 
     def _install_steering(self):
         """Every layer adds a row of a buffer to its output while a generation runs.

@@ -27,10 +27,11 @@ export default {
 
     const qIn = h("textarea", { rows: 2 }, QUESTIONS[0].q);
     const thought = h("textarea", { class: "think", "aria-label": "The model's reasoning", placeholder: "The reasoning will appear here. Pause at any moment to edit it." });
-    const answer = h("div", { class: "answer", style: { minHeight: "4rem" } });
+    const answer = h("textarea", { class: "answer", rows: 6, "aria-label": "The model's answer", placeholder: "The answer will appear here. You can edit it, then let the model continue." });
     const plain = h("div", { class: "answer", style: { minHeight: "4rem" } });
     const state = h("span", { class: "small muted" });
     const editedTag = h("span", { class: "tag violet", hidden: true }, "edited by hand");
+    const answerEditedTag = h("span", { class: "tag violet", hidden: true }, "edited by hand");
     const msg = h("div");
 
     const btnThink = h("button", { class: "btn primary", type: "button" }, "Think, then answer");
@@ -38,8 +39,10 @@ export default {
     const btnCont = h("button", { class: "btn", type: "button" }, "Continue thinking");
     const btnAnswer = h("button", { class: "btn accent", type: "button" }, "Stop thinking and answer");
     const btnPlain = h("button", { class: "btn", type: "button" }, "Answer without thinking");
+    const btnContAnswer = h("button", { class: "btn", type: "button" }, "Continue answering");
 
     thought.addEventListener("input", () => { edited = true; editedTag.hidden = false; });
+    answer.addEventListener("input", () => { answerEditedTag.hidden = false; });
 
     async function template(thinking) {
       const r = await post("/api/template", { messages: [{ role: "user", content: qIn.value }], enable_thinking: thinking });
@@ -47,9 +50,10 @@ export default {
     }
 
     function setRunning(on, label = "") {
-      [btnThink, btnCont, btnAnswer, btnPlain].forEach((b) => (b.disabled = on));
+      [btnThink, btnCont, btnAnswer, btnContAnswer, btnPlain].forEach((b) => (b.disabled = on));
       btnPause.disabled = !on;
       thought.readOnly = on;
+      answer.readOnly = on;
       state.textContent = label;
     }
 
@@ -69,7 +73,7 @@ export default {
             const i = ev.text.indexOf("</think>");
             if (i >= 0) {
               thought.value = (thought.value + ev.text.slice(0, i)).replace(/\s+$/, "");
-              answer.textContent = ev.text.slice(i + 8).replace(/^\s+/, "");
+              answer.value = ev.text.slice(i + 8).replace(/^\s+/, "");
               mode = "answer";
               state.textContent = "Answering…";
             } else {
@@ -77,7 +81,8 @@ export default {
             }
             thought.scrollTop = thought.scrollHeight;
           } else {
-            answer.textContent += ev.text;
+            answer.value += ev.text;
+            answer.scrollTop = answer.scrollHeight;
           }
         }, ctrl.signal);
         msg.replaceChildren();
@@ -88,17 +93,24 @@ export default {
     }
 
     btnThink.addEventListener("click", async () => {
-      thought.value = ""; answer.textContent = ""; edited = false; editedTag.hidden = true;
+      thought.value = ""; answer.value = ""; edited = false; editedTag.hidden = true; answerEditedTag.hidden = true;
       run((await template(true)) + "<think>\n", { inThought: true });
     });
     btnPause.addEventListener("click", () => ctrl?.abort());
     btnCont.addEventListener("click", async () => {
-      answer.textContent = "";
+      answer.value = ""; answerEditedTag.hidden = true;
       run((await template(true)) + "<think>\n" + thought.value, { inThought: true });
     });
+    // The reasoning box always goes in as a closed thought, so the chat format stays intact even when the
+    // box is empty or was edited.
+    const closedThought = async () => (await template(true)) + "<think>\n" + thought.value.replace(/\s+$/, "") + "\n</think>\n\n";
     btnAnswer.addEventListener("click", async () => {
-      answer.textContent = "";
-      run((await template(true)) + "<think>\n" + thought.value.replace(/\s+$/, "") + "\n</think>\n\n", { inThought: false });
+      answer.value = ""; answerEditedTag.hidden = true;
+      run(await closedThought(), { inThought: false });
+    });
+    // Continue from the answer box as it is now, edits included: the model takes it as its own words.
+    btnContAnswer.addEventListener("click", async () => {
+      run((await closedThought()) + answer.value, { inThought: false });
     });
     btnPlain.addEventListener("click", async () => {
       plain.textContent = "";
@@ -125,7 +137,7 @@ export default {
       h("div", { class: "grid2" },
         box("Reasoning (the hidden part)", { right: editedTag, body: [thought, h("span", { class: "label" }, "Put words in its mouth"), nudges, lenS] }),
         h("div", { class: "stack" },
-          box("Answer after thinking", { body: [answer] }),
+          box("Answer after thinking", { right: h("div", { class: "row" }, answerEditedTag, btnContAnswer), body: [answer] }),
           box("For comparison: answer straight away", { right: btnPlain, body: [plain] }))),
       notes({
         math: [

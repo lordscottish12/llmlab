@@ -1,5 +1,6 @@
 import { h, themedTitles } from "./ui.js";
 import { info, serverUrl, setServerUrl } from "./api.js";
+import llull from "./modules/llull.js";
 import tokens from "./modules/tokens.js";
 import embeddings from "./modules/embeddings.js";
 import forward from "./modules/forward.js";
@@ -9,12 +10,12 @@ import chat from "./modules/chat.js";
 import reasoning from "./modules/reasoning.js";
 import steering from "./modules/steering.js";
 
-const MODULES = [tokens, embeddings, forward, generate, attention, chat, reasoning, steering];
+const MODULES = [llull, tokens, embeddings, forward, generate, attention, chat, reasoning, steering];
 
 const nav = document.getElementById("nav");
 const main = document.getElementById("main");
 MODULES.forEach((m, i) => {
-  nav.append(h("li", {}, h("a", { href: `#${m.id}` }, h("b", {}, String(i + 1).padStart(2, "0")), h("span", {}, m.title))));
+  nav.append(h("li", {}, h("a", { href: `#${m.id}` }, h("b", {}, m.num ?? String(i).padStart(2, "0")), h("span", {}, m.title))));
 });
 
 let cleanup = null;

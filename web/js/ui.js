@@ -107,22 +107,23 @@ export function pct(p) {
 }
 
 // A ranked list of next tokens with bars. items: [{text, p}]
-export function probBars(items, { onPick, rest, scale, highlight } = {}) {
+// Optional: an item's `label` replaces its percentage; dim(k) greys out row k ("everything else" is row items.length).
+export function probBars(items, { onPick, rest, scale, highlight, dim } = {}) {
   const max = scale ?? Math.max(...items.map((i) => i.p), 1e-9);
   const rows = items.map((it, k) => {
     const el = h(onPick ? "button" : "div", {
-      class: `prob${onPick ? " clickable" : ""}${highlight === k ? " hl" : ""}`,
+      class: `prob${onPick ? " clickable" : ""}${highlight === k ? " hl" : ""}${dim?.(k) ? " dim" : ""}`,
       type: onPick ? "button" : null,
       title: onPick ? "Append this token" : null,
       onclick: onPick ? () => onPick(it, k) : null,
     },
       h("span", { class: "word" }, showTok(it.text)),
       h("span", { class: "track" }, h("span", { class: "bar", style: { width: `${(it.p / max) * 100}%` } })),
-      h("span", { class: "pct" }, pct(it.p)));
+      h("span", { class: "pct" }, it.label ?? pct(it.p)));
     return el;
   });
   if (rest != null && rest > 0.0005) {
-    rows.push(h("div", { class: "prob rest" },
+    rows.push(h("div", { class: `prob rest${dim?.(items.length) ? " dim" : ""}` },
       h("span", { class: "word" }, "everything else"),
       h("span", { class: "track" }, h("span", { class: "bar", style: { width: `${Math.min(1, rest / max) * 100}%` } })),
       h("span", { class: "pct" }, pct(rest))));

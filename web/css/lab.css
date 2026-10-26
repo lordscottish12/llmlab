@@ -74,7 +74,7 @@ code, .mono { font-family: var(--f-mono); font-size: .9em; }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--bed); }
 
 nav.modules { max-width: 90rem; margin: 1.1rem auto 0; padding: 0 max(16px, 2vw); }
-nav.modules ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); border: 1px solid var(--rule); }
+nav.modules ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); border: 1px solid var(--rule); }
 nav.modules li + li { border-left: 1px solid var(--rule); }
 nav.modules a { display: grid; gap: .15rem; padding: .55rem .7rem .6rem; text-decoration: none; color: var(--muted); height: 100%; }
 nav.modules a b { font: 600 .62rem/1 var(--f-mono); letter-spacing: .08em; color: var(--faint); }
@@ -82,8 +82,8 @@ nav.modules a span { font-weight: 600; font-size: .9rem; line-height: 1.15; }
 nav.modules a:hover { color: var(--ink); }
 nav.modules a[aria-current="page"] { background: var(--ink); color: var(--bed); }
 nav.modules a[aria-current="page"] b { color: var(--accent); }
-@media (max-width: 1000px) { nav.modules ol { grid-template-columns: repeat(4, minmax(0, 1fr)); } nav.modules li:nth-child(5) { border-left: 0; } nav.modules li:nth-child(n+5) { border-top: 1px solid var(--rule); } }
-@media (max-width: 560px) { nav.modules ol { grid-template-columns: repeat(2, minmax(0, 1fr)); } nav.modules li:nth-child(odd) { border-left: 0; } nav.modules li:nth-child(n+3) { border-top: 1px solid var(--rule); } .top { grid-template-columns: 1fr; } .tools { justify-content: flex-start; } }
+@media (max-width: 1000px) { nav.modules ol { grid-template-columns: repeat(5, minmax(0, 1fr)); } nav.modules li:nth-child(6) { border-left: 0; } nav.modules li:nth-child(n+6) { border-top: 1px solid var(--rule); } }
+@media (max-width: 560px) { nav.modules ol { grid-template-columns: repeat(2, minmax(0, 1fr)); } nav.modules li:nth-child(even) { border-left: 1px solid var(--rule); } nav.modules li:nth-child(odd) { border-left: 0; } nav.modules li:nth-child(n+3) { border-top: 1px solid var(--rule); } .top { grid-template-columns: 1fr; } .tools { justify-content: flex-start; } }
 
 main { max-width: 90rem; margin: 0 auto; padding: 2.2rem max(16px, 2vw) 4rem; display: grid; gap: 2rem; }
 .intro { display: grid; gap: .8rem; }
@@ -93,30 +93,23 @@ main { max-width: 90rem; margin: 0 auto; padding: 2.2rem max(16px, 2vw) 4rem; di
 footer { max-width: 90rem; margin: 0 auto; padding: 1.2rem max(16px, 2vw) 2rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: .85rem; display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 
 /* ---------------------------------------------------------------- boxes */
-.box { border: 1px solid var(--rule); background: var(--sheet); min-width: 0; }
-.box > header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .5rem 1rem; padding: .7rem 1rem; border-bottom: 1px solid var(--rule); }
+/* A box is a titled section without an outer frame: a heading with a rule under it, then the content. */
+.box { min-width: 0; }
+.box > header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .5rem 1rem; padding: .7rem 0; border-bottom: 1px solid var(--rule); }
 .box > header h3 { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; }
-.box .body { padding: 1rem; display: grid; gap: .9rem; min-width: 0; }
-.grid2 { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); }
-.grid2 > .box + .box { border-left: 0; }
+.box .body { display: grid; gap: .9rem; min-width: 0; }
+.box > header + .body > :first-child:not(.stats) { margin-top: 1rem; }
+.box > .body > .stats:first-child { border-top: 0; } /* the heading's rule is its top line */
+.box.flush > .body > :first-child { margin-top: 0; }
+.box .body > .seg { justify-self: start; } /* as wide as its buttons, not the column */
+.overlay { display: grid; } /* children share one cell: it is as tall as the tallest */
+.overlay > * { grid-area: 1 / 1; margin: 0; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 1.4rem 2.5rem; }
 .grid2.even { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.grid3 > .box + .box { border-left: 0; }
-@media (max-width: 900px) {
-  .grid2, .grid2.even, .grid3 { grid-template-columns: minmax(0, 1fr); }
-  .grid2 > .box + .box, .grid3 > .box + .box { border-left: 1px solid var(--rule); border-top: 0; }
-}
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.4rem 2.5rem; }
+@media (max-width: 900px) { .grid2, .grid2.even, .grid3 { grid-template-columns: minmax(0, 1fr); } }
 .stack { display: grid; gap: 0; }
-.stack > .box + .box { border-top: 0; }
-/* a box without its outer frame; the lines inside it stay */
-.box.open { border: 0; background: none; }
-.box.open > header, .box.open > .body { padding-inline: 0; }
-.stack > .box.open + .box.open { margin-top: 1.4rem; }
-.box.open > .body { padding-top: 0; }
-.box.open > .body > .stats:first-child { border-top: 0; }
-.box.open > .body > :first-child:not(.stats) { margin-top: 1rem; }
-.box.open.flush > .body > :first-child { margin-top: 0; }
-.grid2.spaced { gap: 1.4rem 2.5rem; }
+.stack > .box + .box { margin-top: 1.4rem; }
 /* A side column that ends level with its neighbour: the .grow box takes the leftover height, and its
    .fit area scrolls inside it (contain: size keeps its content from making the column taller). */
 .stack.fill { display: flex; flex-direction: column; }
@@ -159,8 +152,12 @@ select { width: auto; padding: .45rem .6rem; font-size: .9rem; }
 label.field { display: grid; gap: .3rem; }
 label.field > span { font: 600 .66rem/1.2 var(--f-body); letter-spacing: .13em; text-transform: uppercase; color: var(--muted); }
 .slider { display: grid; grid-template-columns: auto minmax(6rem, 1fr) 3.4rem; gap: .6rem; align-items: center; font-size: .85rem; }
-.slider > span:first-child { font: 600 .66rem/1.2 var(--f-body); letter-spacing: .13em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.slider > span:first-of-type { font: 600 .66rem/1.2 var(--f-body); letter-spacing: .13em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
 .slider output { font: 600 .85rem var(--f-mono); text-align: right; font-variant-numeric: tabular-nums; }
+/* A slider with a scale over its track: the scale takes the track's column in a first row. */
+.slider.scaled > .scale { grid-column: 2; grid-row: 1; display: flex; justify-content: space-between; gap: .5rem; font-size: .75rem; color: var(--faint); }
+.slider.scaled > :not(.scale) { grid-row: 2; }
+.slider .scale .on { color: var(--accent); font-weight: 700; }
 input[type="range"] { accent-color: var(--accent); width: 100%; }
 .check { display: inline-flex; gap: .4rem; align-items: center; font-size: .88rem; color: var(--muted); cursor: pointer; }
 .check input { accent-color: var(--accent); }
@@ -185,7 +182,7 @@ input[type="range"] { accent-color: var(--accent); width: 100%; }
 
 /* ---------------------------------------------------------------- probability bars */
 .probs { display: grid; gap: 4px; }
-.prob { display: grid; grid-template-columns: minmax(4rem, 9rem) minmax(0, 1fr) 3.6rem; gap: .6rem; align-items: center; font-size: .9rem; border: 0; background: none; padding: 0; color: var(--ink); text-align: left; }
+.prob { display: grid; grid-template-columns: minmax(4rem, 9rem) minmax(0, 1fr) 4.2rem; gap: .6rem; align-items: center; font-size: .9rem; border: 0; background: none; padding: 0; color: var(--ink); text-align: left; }
 .prob.clickable { cursor: pointer; }
 .prob.clickable:hover .track { background: var(--line); }
 .prob.clickable:hover .word { text-decoration: underline; text-decoration-color: var(--accent); }
@@ -195,6 +192,7 @@ input[type="range"] { accent-color: var(--accent); width: 100%; }
 .prob:first-child .bar, .prob.hl .bar { background: var(--accent); }
 .probs.hlmode .prob:first-child:not(.hl) .bar { background: var(--ink); }
 .prob .pct { font: 600 .82rem var(--f-mono); text-align: right; font-variant-numeric: tabular-nums; }
+.prob.dim { opacity: .3; }
 .prob.rest .word, .prob.rest .pct { color: var(--muted); }
 .prob.rest .bar { background: var(--faint); }
 
@@ -231,14 +229,17 @@ tr.hl td { background: var(--wash); }
 .scroll { overflow: auto; }
 
 /* ---------------------------------------------------------------- generated text */
-.doc { font: 400 1.08rem/1.65 var(--f-body); white-space: pre-wrap; word-break: break-word; min-height: 6rem; }
+.doc { font: 400 1.08rem/1.65 var(--f-body); white-space: pre-wrap; word-break: break-word; height: 11rem; overflow-y: auto; padding-right: .5rem; } /* fixed height: long texts scroll instead of pushing the page down */
 .doc .given { color: var(--ink); }
 .doc .gen { color: var(--gen); }
 .doc .gtok { color: var(--gen); cursor: pointer; border-bottom: 1px dotted transparent; }
 .doc .gtok:hover, .doc .gtok.sel { border-bottom-color: var(--gen); background: var(--wash); }
 .doc .gtok.forced { text-decoration: underline; text-decoration-style: wavy; text-decoration-color: var(--c4); }
+.doc .gtok.blind { text-decoration: underline dotted var(--muted); text-underline-offset: .2em; }
 .raw { font: 400 .86rem/1.55 var(--f-mono); white-space: pre-wrap; word-break: break-word; background: var(--wash); padding: .8rem; border: 1px solid var(--line); }
 .raw .sp { background: var(--ink); color: var(--bed); padding: 0 2px; }
+button.marker { font: 600 .78rem/1 var(--f-mono); padding: .38rem .55rem; border: 0; background: var(--ink); color: var(--bed); cursor: pointer; } /* looks like the special-token chips it inserts */
+button.marker:hover { background: var(--accent); color: var(--accent-ink); }
 .raw .gen { color: var(--gen); }
 .cursor::after { content: "▌"; color: var(--accent); animation: pulse .6s infinite alternate; }
 .think { background: var(--think); border-left: 3px solid var(--think-ink); padding: .8rem .9rem; font: 400 .95rem/1.6 var(--f-body); color: var(--ink); white-space: pre-wrap; }
@@ -261,6 +262,25 @@ textarea.think { min-height: 14rem; border: 1px solid var(--line); border-left: 
 .heat canvas { width: 100%; image-rendering: pixelated; }
 .toy svg { width: 100%; height: auto; display: block; touch-action: none; }
 .toy .key { cursor: grab; }
+
+/* Llull's machine (prologue) */
+.llull svg { width: 100%; max-width: 36rem; height: auto; display: block; margin: 0 auto; touch-action: none; cursor: grab; user-select: none; }
+.llull svg.dragging { cursor: grabbing; }
+.llull .band { fill: var(--sheet); stroke: var(--rule); }
+.llull .band.alt { fill: var(--wash); }
+.llull .spoke { stroke: var(--line); }
+.llull .hub { fill: var(--sheet); stroke: var(--rule); }
+.llull text { font-family: var(--f-body); fill: var(--ink); }
+.llull .word { font-size: 12.5px; font-weight: 500; fill: var(--muted); }
+.llull .letter { font-size: 19px; font-weight: 800; }
+.llull .hubletter { font-size: 34px; }
+.llull .on { fill: var(--accent); font-weight: 700; }
+.llull .window { fill: color-mix(in srgb, var(--accent) 7%, transparent); stroke: var(--accent); stroke-width: 2; pointer-events: none; }
+.llull-out { font: 700 1.7rem/1.25 var(--f-body); letter-spacing: -.015em; min-height: 4.3rem; }
+.pull { margin: .8rem 0 0; padding: .3rem 0 .3rem 1.1rem; border-left: 3px solid var(--accent); }
+.pull p { margin: 0; font: italic 600 1.55rem/1.3 var(--f-body); }
+.pull p + p { font-size: 1.1rem; font-weight: 500; color: var(--muted); }
+.pull cite { display: block; margin-top: .5rem; font: 400 .82rem/1.4 var(--f-body); color: var(--muted); }
 .dotcalc { display: grid; gap: .25rem; }
 .dotcalc .mono { font-size: .95rem; margin-bottom: .5rem; }
 
@@ -268,12 +288,14 @@ textarea.think { min-height: 14rem; border: 1px solid var(--line); border-left: 
 .legend i { display: inline-block; width: .8rem; height: .8rem; margin-right: .3rem; vertical-align: -.1rem; }
 .ramp { height: .55rem; width: 8rem; background: linear-gradient(to right, var(--neg), var(--zero), var(--pos)); display: inline-block; }
 
-.hbar { display: grid; grid-template-columns: minmax(0, 1fr) 3.4rem; gap: .6rem; align-items: center; }
+.hbar { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 3.4rem; gap: .6rem; align-items: center; }
+.meters { display: grid; gap: .45rem; align-content: start; max-height: 14rem; overflow-y: auto; padding: 4px 0; } /* padding: room for the midline, which sticks out 3px */ /* many test sentences scroll instead of pushing the page down */
+.gap-above { margin-top: 1.5rem; }
 .meter { position: relative; height: 1.3rem; background: var(--wash); }
 .meter .mid { position: absolute; left: 50%; top: -3px; bottom: -3px; border-left: 1px dashed var(--faint); }
 .meter .fill { position: absolute; top: 0; bottom: 0; }
 .sent { font-size: .92rem; }
 .box.flush > .body { padding: 0; gap: 0; }
-.box.flush > .body > .legend, .box.flush > .body > p { padding: .6rem 1rem; }
+.box.flush > .body > .legend, .box.flush > .body > p { padding: .6rem 0; }
 /* JetBrains Mono would draw <| and |> as triangles; show the characters as typed. */
-code, .mono, .raw, .tokens, .ids, textarea.mono, input.mono, .prob .word, td.tokcell, .formula, .arcs text, .llabel, .tlabel, .plabel { font-variant-ligatures: none; }
+code, .mono, .raw, .tokens, .ids, textarea.mono, input.mono, .prob .word, td.tokcell, .formula, .notes .formula, button.marker, .arcs text, .llabel, .tlabel, .plabel { font-variant-ligatures: none; }
