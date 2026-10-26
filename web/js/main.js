@@ -9,8 +9,12 @@ import attention from "./modules/attention.js";
 import chat from "./modules/chat.js";
 import reasoning from "./modules/reasoning.js";
 import steering from "./modules/steering.js";
+import ablation from "./modules/ablation.js";
+import features from "./modules/features.js";
+import onenumber from "./modules/onenumber.js";
+import reading from "./modules/reading.js";
 
-const MODULES = [llull, tokens, embeddings, forward, generate, attention, chat, reasoning, steering];
+const MODULES = [llull, tokens, embeddings, forward, generate, attention, chat, reasoning, steering, ablation, features, onenumber, reading];
 
 const nav = document.getElementById("nav");
 const main = document.getElementById("main");
@@ -18,12 +22,25 @@ MODULES.forEach((m, i) => {
   nav.append(h("li", {}, h("a", { href: `#${m.id}` }, h("b", {}, m.num ?? String(i).padStart(2, "0")), h("span", {}, m.title))));
 });
 
+// The landing page, shown when the address names no chapter: the image, the title, and a way in.
+function cover() {
+  document.body.classList.add("cover-mode");
+  main.replaceChildren(h("section", { class: "cover" },
+    h("img", { src: "img/library-of-babel.webp", alt: "Borges's Library of Babel: endless hexagonal galleries of books, joined by spiral stairs" }),
+    h("h1", { class: "brand" }, "LLM Lab"),
+    h("a", { class: "btn primary", href: `#${MODULES[0].id}` }, "Continue")));
+  document.title = "LLM Lab";
+}
+
 let cleanup = null;
 function route() {
-  const id = location.hash.slice(1) || MODULES[0].id;
+  try { cleanup?.(); } catch (e) { console.error(e); }
+  cleanup = null;
+  if (!location.hash.slice(1)) { cover(); return; }
+  document.body.classList.remove("cover-mode");
+  const id = location.hash.slice(1);
   const m = MODULES.find((x) => x.id === id) || MODULES[0];
   nav.querySelectorAll("a").forEach((a) => a.setAttribute("aria-current", a.getAttribute("href") === `#${m.id}` ? "page" : "false"));
-  try { cleanup?.(); } catch (e) { console.error(e); }
   main.replaceChildren();
   cleanup = m.mount(main) || null;
   document.title = `${m.title} · LLM Lab`;
@@ -36,15 +53,13 @@ themedTitles();
 // ---------------------------------------------------------------- theme and projector mode
 const root = document.documentElement;
 const themeButtons = document.querySelectorAll("[data-set-theme]");
-const dark = matchMedia("(prefers-color-scheme: dark)");
-const currentTheme = () => root.dataset.theme || (dark.matches ? "dark" : "light");
+const currentTheme = () => root.dataset.theme || "light"; // Day unless Night was chosen
 const syncTheme = () => themeButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.setTheme === currentTheme())));
 themeButtons.forEach((b) => b.addEventListener("click", () => {
   root.dataset.theme = b.dataset.setTheme;
   try { localStorage.setItem("lab-theme", b.dataset.setTheme); } catch {}
   syncTheme();
 }));
-dark.addEventListener("change", syncTheme);
 syncTheme();
 
 const present = document.getElementById("present");
@@ -55,6 +70,16 @@ present.addEventListener("click", () => {
   syncPresent();
 });
 syncPresent();
+
+// The "math, roughly" and "for discussion" boxes: hidden unless switched on (and remembered).
+const notesBtn = document.getElementById("notes");
+const syncNotes = () => notesBtn.setAttribute("aria-pressed", String(root.classList.contains("show-notes")));
+notesBtn.addEventListener("click", () => {
+  root.classList.toggle("show-notes");
+  try { localStorage.setItem("lab-notes", root.classList.contains("show-notes") ? "1" : "0"); } catch {}
+  syncNotes();
+});
+syncNotes();
 
 // ---------------------------------------------------------------- server status
 const status = document.getElementById("status");

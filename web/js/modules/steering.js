@@ -36,6 +36,12 @@ const CONCEPTS = [
     negative: NEUTRAL.slice(0, 5),
     tests: ["Hume denied that we perceive causation.", "Please pass the salt.", "What is it like to be a bat?", "The bus was late again.", "Plato's forms exist outside space and time."],
   },
+  {
+    name: "Continental ↔ analytic",
+    positive: ["Being withdraws in the very moment of its disclosure.", "The face of the Other calls me to a responsibility older than any contract.", "Language speaks us before we ever speak it.", "Every text carries the trace of what it excludes, deferring its meaning without end.", "The body is not an object I possess but the medium through which a world comes to be."],
+    negative: ["Existence is not a predicate, since saying that a thing exists adds nothing to its concept.", "We have a moral obligation to others if and only if they have interests that can be set back.", "The meaning of a sentence is a function of the meanings of its parts.", "Every sentence has determinate truth conditions, though context may fix some of them.", "The body is a physical object, and the question is how mental states relate to its states."],
+    tests: ["Thinking begins where certainty ends, in the openness of the question.", "If knowledge is justified true belief, Gettier cases are counterexamples.", "The train leaves at nine.", "The trace of the Other haunts every word I write.", "The sentence 'snow is white' is true if and only if snow is white."],
+  },
 ];
 
 const PROMPTS = [
@@ -43,6 +49,7 @@ const PROMPTS = [
   { name: "A poem", text: "Write a four-line poem about a cat." },
   { name: "Advice", text: "Give me one piece of advice for my exam tomorrow." },
   { name: "About me", text: "What do you think of me?" },
+  { name: "What is time?", text: "What is time?" },
 ];
 
 export default {

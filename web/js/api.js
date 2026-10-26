@@ -33,7 +33,12 @@ export async function get(path) {
 
 // Streams /api/generate. onEvent receives {text} pieces and finally {done}. Returns when the stream ends.
 export async function stream(body, onEvent, signal) {
-  const res = await fetch(serverUrl() + "/api/generate", {
+  return streamEvents("/api/generate", body, onEvent, signal);
+}
+
+// Shared SSE transport for generation and the longer-running layer search.
+export async function streamEvents(path, body, onEvent, signal) {
+  const res = await fetch(serverUrl() + path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

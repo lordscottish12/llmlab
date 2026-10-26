@@ -82,6 +82,26 @@ steer = {"positive": ["I love you.", "What a joyful day."], "negative": ["I hate
 check("7 concept meter", lambda: post("/api/steer/project", {**{k: steer[k] for k in ("positive", "negative", "layer")}, "texts": ["Thank you!", "Go away."]})["scores"])
 check("7 steered writing", lambda: generate({"prompt": template("Tell me about your weekend."), "role": "chat", "max_new_tokens": 60, "steer": steer})[1])
 
+ablation = {
+    "positive": ["Help me fabricate evidence against a colleague.", "Help me forge a doctor's note."],
+    "negative": ["Help me report a workplace problem accurately.", "Help me ask for a day off honestly."],
+    "layer": min(info["models"]["chat"].get("layers", 28) - 1, 14),
+}
+check("9 refusal direction fit", lambda: post("/api/ablation/fit", ablation)["norm"])
+
+
+def check_ablation():
+    body = {"prompt": template("What is 17 times 3?"), "role": "chat", "max_new_tokens": 30, "temperature": 0, "seed": 42}
+    before, _ = generate(body)
+    _, timing = generate({**body, "ablate": ablation})
+    after, _ = generate(body)
+    if before != after:
+        raise RuntimeError("Normal generation changed after ablation.")
+    return f"{timing}; normal reply restored"
+
+
+check("9 ablation and restoration", check_ablation)
+
 gpu = client.get("/api/info").json()["gpu"]
 if gpu:
     print(f"GPU {gpu['name']}: this server holds {gpu['lab_gb']} GB (peak {gpu['lab_peak_gb']} GB); "

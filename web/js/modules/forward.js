@@ -14,6 +14,7 @@ export default {
   mount(main) {
     let data = null;
     let selected = null; // [layer, pos]
+    let reading = "logit"; // which lens reads the layers: "logit", or "j" for the Jacobian lens (when one is fitted)
     let timer = null;
 
     const stageEl = h("div", { class: "stage", style: { height: "clamp(30rem, 72vh, 52rem)" } },
@@ -40,6 +41,29 @@ export default {
     const lensBox = h("div", { class: "scroll fit" });
     const lensPanel = box("How the guess forms, layer by layer", { body: [h("p", { class: "small muted" }, "Click any tile in the picture to read that vector instead."), lensBox], cls: "grow" });
     const lensTitle = lensPanel.querySelector("h3");
+    // A tile as the chosen lens reads it: its top predictions, uncertainty and arrow.
+    const cell = (l, p) => (reading === "j" && data.cells[l][p].j) || data.cells[l][p];
+    const readingSeg = h("div", { class: "seg", role: "group", "aria-label": "Which lens", style: { display: "none" } },
+      h("button", { type: "button", "aria-pressed": "true", "data-r": "logit", title:
+        "Read each vector as if it were the last one, with the model's own final steps:\n" +
+        "1. Normalize: rescale it the way the model rescales its final vector (RMSNorm).\n" +
+        "2. Unembed: take its dot product with each token's output vector, one score (logit) per token, about 152,000 in all.\n" +
+        "3. Softmax: turn the scores into probabilities that add up to 100%." }, "Logit lens"),
+      h("button", { type: "button", "aria-pressed": "false", "data-r": "j", title:
+        "Anthropic's Jacobian lens: carry each vector into the last layer's terms first, then read it.\n" +
+        "1. Carry: multiply it by this layer's Jacobian, a table of how a small nudge here changes the final vector, averaged over 150 passages of web text.\n" +
+        "2.–4. Then as the logit lens: normalize, unembed, softmax." }, "J-lens"));
+    readingSeg.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b || !data) return;
+      reading = b.dataset.r;
+      readingSeg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      tiles.forEach((t) => { t.material.map.dispose(); t.material.map = arrowTexture(t.userData.l, t.userData.pos); t.material.needsUpdate = true; });
+      renderArrows();
+      renderFinal();
+      renderLens();
+    });
+    lensPanel.querySelector("header").append(readingSeg);
     const flow = h("p", { class: "small muted" });
     const arrowSvg = svgEl("svg", { viewBox: "0 0 320 320", role: "img", "aria-label": "The selected token's vector after every layer, as arrows" });
     arrowSvg.addEventListener("click", (e) => {
@@ -54,6 +78,8 @@ export default {
       busy(runBtn, true, "Running…");
       try {
         data = await post("/api/forward", { text: input.value });
+        readingSeg.style.display = data.cells[0][0].j ? "" : "none"; // only when a lens is fitted for this model
+        if (!data.cells[0][0].j) reading = "logit";
         msg.replaceChildren();
         selected = [data.layers, data.tokens.length - 1];
         build();
@@ -67,8 +93,8 @@ export default {
     // A tile: transparent, with only a faint cross and the arrow, so that from above the
     // arrows of all layers can be seen through each other. Same projection and colours as the 2D plot.
     function arrowTexture(l, p) {
-      const [x, y] = data.cells[l][p].arrow;
-      const scale = Math.max(...data.cells.map((row) => Math.hypot(...row[p].arrow))) || 1;
+      const [x, y] = cell(l, p).arrow;
+      const scale = Math.max(...data.cells.map((_, k) => Math.hypot(...cell(k, p).arrow))) || 1;
       const N = 128, c = document.createElement("canvas");
       c.width = c.height = N;
       const g = c.getContext("2d");
@@ -76,7 +102,7 @@ export default {
       g.lineWidth = 2;
       g.beginPath(); g.moveTo(N / 2, 8); g.lineTo(N / 2, N - 8); g.moveTo(8, N / 2); g.lineTo(N - 8, N / 2); g.stroke();
       const r = (N / 2 - 8) / scale, tx = N / 2 + x * r, ty = N / 2 - y * r;
-      g.strokeStyle = g.fillStyle = data.cells[l][p].lens[0][0] === data.axes[p][0] ? cssVar("--accent") : cssVar("--ink");
+      g.strokeStyle = g.fillStyle = cell(l, p).lens[0][0] === data.axes[p][0] ? cssVar("--accent") : cssVar("--ink");
       g.lineWidth = 5;
       g.lineCap = "round";
       g.beginPath(); g.moveTo(N / 2, N / 2); g.lineTo(tx, ty); g.stroke();
@@ -173,7 +199,7 @@ export default {
     function renderArrows() {
       const [sl, pos] = selected;
       const S = 320, C = S / 2, R = C - 30;
-      const pts = data.cells.map((row) => row[pos].arrow);
+      const pts = data.cells.map((_, l) => cell(l, pos).arrow);
       const scale = Math.max(...pts.map(([x, y]) => Math.hypot(x, y))) || 1;
       const [ax, ay] = data.axes[pos].map((t) => `“${showTok(t)}”`);
       const tok = `“${showTok(data.tokens[pos])}”`;
@@ -182,7 +208,7 @@ export default {
       const at = ([x, y]) => [C + (x / scale) * R, C - (y / scale) * R];
       const arrow = (l) => {
         const [x, y] = at(pts[l]), sel = l === sl;
-        const col = data.cells[l][pos].lens[0][0] === data.axes[pos][0] ? acc : ink;
+        const col = cell(l, pos).lens[0][0] === data.axes[pos][0] ? acc : ink;
         return svgEl("g", { opacity: sel ? 1 : 0.15 + 0.6 * (l / data.layers) },
           svgEl("line", { x1: C, y1: C, x2: x, y2: y, stroke: col, "stroke-width": sel ? 3.5 : 1.5, "stroke-linecap": "round" }),
           svgEl("circle", { cx: x, cy: y, r: sel ? 6 : 4, fill: col, class: "key", "data-l": l, title: l === 0 ? "embedding" : `after layer ${l}` }));
@@ -222,11 +248,11 @@ export default {
     // what that vector would predict if the model stopped there.
     function renderFinal() {
       const [sl, pos] = selected;
-      const L = data.layers, last = data.tokens.length - 1, c = data.cells[sl][pos];
+      const L = data.layers, last = data.tokens.length - 1, c = cell(sl, pos);
       const tok = `“${showTok(data.tokens[pos])}”`;
       finalTitle.textContent = sl === L
         ? (pos === last ? "The output: next-token probabilities" : `The output at ${tok}: what it expects next`)
-        : `If it stopped ${sl === 0 ? "at the embedding" : `after layer ${sl}`}: what ${tok} would predict`;
+        : `If it stopped ${sl === 0 ? "at the embedding" : `after layer ${sl}`}: what ${tok} would predict${reading === "j" ? " (J-lens)" : ""}`;
       const top = c.lens.slice(0, 10);
       finalBox.replaceChildren(...[
         probBars(top.map(([text, p]) => ({ text, p })), { rest: 1 - top.reduce((a, [, p]) => a + p, 0) }),
@@ -237,10 +263,10 @@ export default {
     function renderLens() {
       const [, pos] = selected;
       const final = data.final[0][0];
-      lensTitle.textContent = `What the vector for “${showTok(data.tokens[pos])}” would predict, layer by layer`;
+      lensTitle.textContent = `What the vector for “${showTok(data.tokens[pos])}” would predict, layer by layer${reading === "j" ? " (J-lens)" : ""}`;
       const rows = [];
       for (let l = data.layers; l >= 0; l--) {
-        const lens = data.cells[l][pos].lens;
+        const lens = cell(l, pos).lens;
         rows.push(h("tr", { class: selected[0] === l ? "hl" : "" },
           h("td", { class: "num" }, l === 0 ? "emb" : l),
           ...lens.slice(0, 3).map(([t, p]) => h("td", { class: "tokcell", style: { color: t === final && pos === data.tokens.length - 1 ? "var(--accent)" : "", fontWeight: p > 0.25 ? 700 : 400 } }, `${showTok(t)} `, h("span", { class: "muted" }, pct(p))))));
@@ -262,10 +288,10 @@ export default {
       const o = hit(ev);
       if (!o) { tip(null); return; }
       const { l, pos } = o.userData;
-      const c = data.cells[l][pos];
+      const c = cell(l, pos);
       tip(`<b>${l === 0 ? "Embedding" : `After layer ${l}`}</b> · token <span class="mono">${esc(showTok(data.tokens[pos]))}</span><br>
         <span class="muted">Read as a prediction:</span> ${c.lens.slice(0, 4).map(([t, p]) => `<span class="mono">${esc(showTok(t))}</span> ${pct(p)}`).join(", ")}<br>
-        <span class="muted">Length of the vector: ${c.norm}</span>`, ev);
+        <span class="muted">Length of the vector: ${data.cells[l][pos].norm}</span>`, ev);
     });
     stage.renderer.domElement.addEventListener("pointerleave", () => tip(null));
     stage.renderer.domElement.addEventListener("click", (ev) => {
@@ -293,11 +319,14 @@ export default {
           { f: "vector ← vector + attention(all vectors) ;  vector ← vector + mlp(vector)" },
           "At the top, the last vector is compared with the vector of every token in the vocabulary (a dot product: multiply and add). The scores are turned into percentages that sum to 100% by <em>softmax</em>.",
           { f: "p(token) = e^score(token) / Σ e^score(all tokens)" },
-          "The column on the right uses the “logit lens”: we apply that last step early, to read what each intermediate vector would predict if the model stopped there.",
+          "The layer-by-layer table uses the <b>logit lens</b>: we apply that last step early, to read what each intermediate vector would predict if the model stopped there.",
+          "The <b>J-lens</b> (Anthropic, 2026) first carries a vector into the last layer's terms, using how a small nudge to it changes the final vector, on average over a sample of web text, and only then reads it. Where the logit lens shows fragments, it often names the concept: for “The Eiffel Tower is located in the city of” it reads “cities” from layer 6, “这座城市” (Chinese for “this city”) from layer 12, and “巴黎” (Paris, in Chinese) at layer 21, before the English “Paris”.",
+          { f: "J-lens: read( J_layer · vector ),   J_layer = average of ∂(final vector) / ∂(vector at this layer)" },
         ],
         discuss: [
           "The model outputs a distribution, not an answer. Where does the “answer” come from? (Chapter 4.)",
           "In the logit lens the right answer often appears suddenly in a middle layer. Is there a moment at which the model “knows” the capital of France?",
+          "With the J-lens, the middle of the model reads “this city” and “Paris” in Chinese before the English word appears. Does the model think in a language at all, or in something that only becomes English at the end?",
           "Training only ever rewards predicting the next token well. Can understanding grow out of that goal, or only an imitation of it?",
           "Billions of numbers, all visible, and still hard to interpret. Is this a better or a worse position than we are in with human brains?",
         ],

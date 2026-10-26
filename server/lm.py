@@ -5,7 +5,9 @@ demos can show that a "chat" is just a text document with a particular format.
 """
 
 import hashlib
+import json
 import math
+import os
 import random
 import threading
 import time
@@ -15,7 +17,7 @@ import numpy as np
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-from .config import MAX_CONTEXT, USE_GRAPHS, ModelSpec
+from .config import DATA_DIR, MAX_CONTEXT, USE_GRAPHS, ModelSpec
 from .decode import Decoder
 
 
@@ -59,6 +61,8 @@ class LM:
         self.spec = spec
         self.tok = None
         self.model = None
+        self.jlens = None  # the fitted Jacobian lens, if there is one
+        self.neurons = None  # the super weight and language neurons (scripts/find_neurons.py), if found
         self.status = "not loaded"
         self.error: str | None = None
         self.lock = threading.RLock()  # one forward pass at a time per model
@@ -98,11 +102,32 @@ class LM:
             self._install_steering()
             # The base model only continues short documents, so it gets a smaller cache.
             self.decoder = Decoder(model, MAX_CONTEXT if self.role == "chat" else min(MAX_CONTEXT, 2048), USE_GRAPHS)
+            self.jlens = self._load_jlens()
+            self.neurons = self._load_neurons()
+            if self.neurons:
+                self._install_neurons()
             self.status = f"ready ({time.time() - t0:.0f}s)"
         except Exception as e:  # surfaced in /api/info so the UI can say what went wrong
             self.status = "error"
             self.error = f"{type(e).__name__}: {e}"
             raise
+
+    def _load_jlens(self):
+        """The fitted Jacobian lens for this model (scripts/fit_jlens.py), if there is one: one d x d matrix per
+        layer, which carries that layer's vector into the last layer's basis."""
+        path = os.path.join(DATA_DIR, "jlens", self.spec.repo.split("/")[-1] + ".pt")
+        if not os.path.exists(path):
+            return None
+        return torch.load(path)["J"].to(self.device, self.model.model.norm.weight.dtype)
+
+    def _load_neurons(self):
+        if self.spec.quant:  # a 4-bit model's weights cannot be read one by one
+            return None
+        path = os.path.join(DATA_DIR, "neurons", self.spec.repo.split("/")[-1] + ".json")
+        if not os.path.exists(path):
+            return None
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
 
     def require(self):
         if self.model is None:
@@ -130,6 +155,7 @@ class LM:
                 hidden=cfg.hidden_size,
                 vocab=cfg.vocab_size,
                 params=sum(p.numel() for p in self.model.parameters()),
+                jlens=self.jlens is not None,
             )
             if self.spec.quant == "4bit":  # 4-bit weights are packed two per byte, so count from the config
                 d["params"] = int(d["params"] * 2 - cfg.vocab_size * cfg.hidden_size)
@@ -202,24 +228,14 @@ class LM:
                 self.model(input_ids=ids, use_cache=False)
             hs = torch.stack([s.float() for s in states])  # (L+1, n, d)
             L1, n, d = hs.shape
-            lens_rows, entropies = [], []
-            for l in range(L1):
-                probs = torch.softmax(self.lens(hs[l]), -1)  # (n, V)
-                p, i = probs.topk(top, -1)
-                lens_rows.append((p.cpu().numpy(), i.cpu().numpy()))
-                entropies.append((-(probs * probs.clamp_min(1e-12).log2()).sum(-1)).cpu().numpy())
-            # Arrows: each vector as the logit lens reads it (after the final norm), projected onto the
-            # output directions of its own column's top two final predictions. The second direction is made
-            # perpendicular to the first, so the two axes span a proper plane.
-            top2 = torch.as_tensor(lens_rows[-1][1][:, :2], device=hs.device)  # (n, 2)
-            wa, wb = self.model.lm_head.weight[top2[:, 0]].float(), self.model.lm_head.weight[top2[:, 1]].float()
-            e1 = wa / wa.norm(dim=-1, keepdim=True)
-            e2 = wb - (wb * e1).sum(-1, keepdim=True) * e1
-            e2 = e2 / e2.norm(dim=-1, keepdim=True).clamp_min(1e-6)
-            nh = self.model.model.norm(hs.to(self.model.model.norm.weight.dtype)).float()  # (L+1, n, d)
-            arrows = torch.stack([(nh * e1).sum(-1), (nh * e2).sum(-1)], -1).cpu().numpy()  # (L+1, n, 2)
-            axes = top2.cpu().tolist()
-            del nh
+            # The logit lens reads every vector as it is. The Jacobian lens first carries each layer's vector
+            # into the last layer's basis (J @ h); the last layer needs no carrying.
+            logit = self._readout(hs, top)
+            jl = None
+            if self.jlens is not None:
+                carried = torch.stack([hs[l] @ self.jlens[l].float().T if l < len(self.jlens) else hs[l] for l in range(L1)])
+                jl = self._readout(carried, top, axes_from=logit)
+                del carried
             final = torch.softmax(self.lens(hs[-1][-1]), -1)
             entropy = float(-(final * final.clamp_min(1e-12).log2()).sum())
             fp, fi = final.topk(30)
@@ -237,19 +253,50 @@ class LM:
                 [
                     {
                         "norm": round(float(norms[l, pos]), 1),
-                        "lens": [[self.piece(int(t)), round(float(pr), 4)] for pr, t in zip(*[a[pos] for a in lens_rows[l]])],
-                        "arrow": [round(float(v), 2) for v in arrows[l, pos]],
-                        "entropy": round(float(entropies[l][pos]), 3),
+                        **self._cell(logit, l, pos),
+                        **({"j": self._cell(jl, l, pos)} if jl else {}),
                     }
                     for pos in range(n)
                 ]
                 for l in range(L1)
             ],
             "final": [[self.piece(int(t)), float(pr)] for pr, t in zip(fp.tolist(), fi.tolist())],
-            "axes": [[self.piece(a), self.piece(b)] for a, b in axes],  # per column: the tokens its arrows are projected onto
+            "axes": [[self.piece(a), self.piece(b)] for a, b in logit["axes"]],  # per column: the tokens its arrows are projected onto
             "entropy": entropy,
         }
         return result
+
+    def _readout(self, hs: torch.Tensor, top: int, axes_from: dict | None = None) -> dict:
+        """Read every vector in hs (L+1, n, d) as a prediction, with the model's own final norm and unembedding.
+
+        Also the arrows: each vector as read here (after the final norm), projected onto the output directions
+        of its own column's top two final predictions. The second direction is made perpendicular to the
+        first, so the two axes span a proper plane.
+        """
+        rows, entropies = [], []
+        for l in range(hs.shape[0]):
+            probs = torch.softmax(self.lens(hs[l]), -1)  # (n, V)
+            p, i = probs.topk(top, -1)
+            rows.append((p.cpu().numpy(), i.cpu().numpy()))
+            entropies.append((-(probs * probs.clamp_min(1e-12).log2()).sum(-1)).cpu().numpy())
+        if axes_from is not None:
+            top2 = torch.as_tensor(axes_from["axes"], device=hs.device)
+        else:
+            top2 = torch.as_tensor(rows[-1][1][:, :2], device=hs.device)  # (n, 2)
+        wa, wb = self.model.lm_head.weight[top2[:, 0]].float(), self.model.lm_head.weight[top2[:, 1]].float()
+        e1 = wa / wa.norm(dim=-1, keepdim=True)
+        e2 = wb - (wb * e1).sum(-1, keepdim=True) * e1
+        e2 = e2 / e2.norm(dim=-1, keepdim=True).clamp_min(1e-6)
+        nh = self.model.model.norm(hs.to(self.model.model.norm.weight.dtype)).float()  # (L+1, n, d)
+        arrows = torch.stack([(nh * e1).sum(-1), (nh * e2).sum(-1)], -1).cpu().numpy()  # (L+1, n, 2)
+        return {"rows": rows, "entropies": entropies, "arrows": arrows, "axes": top2.cpu().tolist()}
+
+    def _cell(self, r: dict, l: int, pos: int) -> dict:
+        return {
+            "lens": [[self.piece(int(t)), round(float(pr), 4)] for pr, t in zip(*[a[pos] for a in r["rows"][l]])],
+            "arrow": [round(float(v), 2) for v in r["arrows"][l, pos]],
+            "entropy": round(float(r["entropies"][l][pos]), 3),
+        }
 
     @torch.no_grad()
     def next_token(self, text: str, temperature: float = 1.0, top: int = 12) -> dict:
@@ -419,7 +466,25 @@ class LM:
         """
         cfg = self.model.config
         self._steer_buf = torch.zeros(cfg.num_hidden_layers, cfg.hidden_size, device=self.device, dtype=self.model.model.norm.weight.dtype)
+        # Fixed storage: a captured decoding graph must see later changes to the direction.
+        self._ablate_buf = torch.zeros(cfg.hidden_size, device=self.device, dtype=torch.float32)
         self._steer_on = False
+
+        def ablate(module, inputs, output):
+            if not self._steer_on:
+                return None
+            hidden = output[0] if isinstance(output, tuple) else output
+            x = hidden.float()
+            projected = (x - (x @ self._ablate_buf).unsqueeze(-1) * self._ablate_buf).to(hidden.dtype)
+            return (projected,) + tuple(output[1:]) if isinstance(output, tuple) else projected
+
+        # Project each write into the residual stream: embeddings, attention and MLP outputs.
+        # By linearity this keeps the stream perpendicular to r after every sublayer.
+        # Hooks run even for the zero direction during generation, so CUDA graphs can switch modes.
+        self.model.model.embed_tokens.register_forward_hook(ablate)
+        for layer in self.layers:
+            layer.self_attn.register_forward_hook(ablate)
+            layer.mlp.register_forward_hook(ablate)
 
         def make(l):
             def hook(module, inputs, output):
@@ -433,10 +498,81 @@ class LM:
         for l, layer in enumerate(self.layers):
             layer.register_forward_hook(make(l))
 
+    def _install_neurons(self):
+        """Hooks for the "One number" chapter, on every layer's MLP output projection (down_proj).
+
+        Before it: chosen neurons are clamped to set values (x <- x * (1 - mask) + value), for the language
+        neurons. After it, in the super weight's layer: that one weight's contribution is taken away again,
+        which is exactly what setting it to zero would do, without touching the model. All buffers are zero
+        unless a generation asks for them, and the hooks stay installed, so they live inside the CUDA graph.
+        """
+        cfg, dt = self.model.config, self.model.model.norm.weight.dtype
+        self._clamp_mask = torch.zeros(cfg.num_hidden_layers, cfg.intermediate_size, device=self.device, dtype=dt)
+        self._clamp_val = torch.zeros_like(self._clamp_mask)
+        self._sw_on = torch.zeros((), device=self.device, dtype=dt)
+        sw = self.neurons["super_weight"]
+
+        def clamp(l):
+            def hook(module, inputs):
+                if not self._steer_on:
+                    return None
+                x = inputs[0]
+                return (x * (1 - self._clamp_mask[l]) + self._clamp_val[l],)
+            return hook
+
+        def without_super_weight(module, inputs, output):
+            if not self._steer_on:
+                return None
+            w = module.weight[sw["row"], sw["col"]]
+            output[..., sw["row"]] -= self._sw_on * w * inputs[0][..., sw["col"]]
+            return output
+
+        for l, layer in enumerate(self.layers):
+            layer.mlp.down_proj.register_forward_pre_hook(clamp(l))
+        self.layers[sw["layer"]].mlp.down_proj.register_forward_hook(without_super_weight)
+
+    def neuron_plan(self, zero_super: bool = False, language: str | None = None, strength: float = 0.0, mute: str | None = "en",
+                    exclude: str | None = None):
+        """Buffers for one generation: (mask, values, super weight off). Language neurons are pushed to
+        `strength` times their typical level, leaving out any shared with the `exclude` language (Swiss German
+        without German: only what sets it apart); the `mute` language's own neurons are switched off."""
+        if not self.neurons:
+            raise ValueError("No neurons found for this model yet. Run scripts/find_neurons.py.")
+        mask, val = torch.zeros_like(self._clamp_mask), torch.zeros_like(self._clamp_val)
+        if language and strength:
+            langs = self.neurons["languages"]
+            if language not in langs:
+                raise ValueError(f"Unknown language {language!r}")
+            ours = set()
+            shared = {(l, j) for l, j, _ in langs[exclude]["neurons"]} if exclude in langs else set()
+            for l, j, v in langs[language]["neurons"]:
+                if (l, j) in shared:
+                    continue
+                mask[l, j], val[l, j] = 1, v * strength
+                ours.add((l, j))
+            if mute and mute != language:
+                for l, j, _ in langs[mute]["neurons"]:
+                    if (l, j) not in ours:
+                        mask[l, j], val[l, j] = 1, 0
+        return mask, val, torch.tensor(1.0 if zero_super else 0.0, device=self.device, dtype=mask.dtype)
+
+    def _set_neurons(self, plan):
+        if not self.neurons:
+            return
+        if plan is None:
+            self._clamp_mask.zero_(), self._clamp_val.zero_(), self._sw_on.zero_()
+        else:
+            self._clamp_mask.copy_(plan[0]), self._clamp_val.copy_(plan[1]), self._sw_on.copy_(plan[2])
+
     def _set_steer(self, vec: torch.Tensor | None, layer: int):
         self._steer_buf.zero_()
         if vec is not None:
             self._steer_buf[layer] = vec.to(self._steer_buf.dtype)
+
+    def _set_ablation(self, direction: torch.Tensor | None):
+        self._ablate_buf.zero_()
+        if direction is not None:
+            self._ablate_buf.copy_(direction)
 
     # ---------------------------------------------------------------- generation
 
@@ -460,9 +596,18 @@ class LM:
         steer: tuple[torch.Tensor, int] | None = None,
         stop_strings: list[str] | None = None,
         seed: int | None = None,
+        ablate: torch.Tensor | None = None,
+        neurons: tuple | None = None,
     ):
         """Yield the continuation of `prompt` piece by piece. One forward pass per new token."""
         self.require()
+        if ablate is not None:
+            if steer is not None or neurons is not None:
+                raise ValueError("Run ablation separately from other interventions.")
+            ablate = ablate.to(device=self.device, dtype=torch.float32)
+            if ablate.shape != self._ablate_buf.shape or not torch.isfinite(ablate).all() or ablate.norm() < 1e-6:
+                raise ValueError("Ablation needs a finite, non-zero direction matching the model width.")
+            ablate = ablate / ablate.norm()
         stops = self.stop_ids()
         gen = torch.Generator(device=self.device)
         gen.manual_seed(seed if seed is not None else int(time.time() * 1000) % 2**31)
@@ -480,6 +625,8 @@ class LM:
         try:
             with self.lock:
                 self._set_steer(vec, layer)
+                self._set_ablation(ablate)
+                self._set_neurons(neurons)
                 self._steer_on = True
                 try:
                     logits = self.decoder.prefill(ids).float()
@@ -511,6 +658,8 @@ class LM:
                     preempted = not self.decoder.owns(me)
                     if not preempted:
                         self._set_steer(vec, layer)
+                        self._set_ablation(ablate)
+                        self._set_neurons(neurons)
                         self._steer_on = True
                         try:
                             logits = self.decoder.step(nxt).float()

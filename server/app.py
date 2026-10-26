@@ -1,7 +1,9 @@
 """HTTP API for the LLM Lab. Run with:  uv run python -m server  (see README)."""
 
+import asyncio
 import json
 import os
+import queue
 import threading
 from contextlib import asynccontextmanager
 
@@ -10,14 +12,18 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import config
 from .embeddings import WordVectors
 from .lm import LM
+from .sae import SAEs
+from .refusal import RefusalDirections, SearchCancelled
 
 MODELS = {role: LM(role, spec) for role, spec in config.ROLES.items()}
 WORDS = WordVectors()
+SAES = SAEs(MODELS["base"])  # sparse autoencoders for the base model, if prepared
+REFUSAL = RefusalDirections(MODELS["chat"])
 
 
 @asynccontextmanager
@@ -294,6 +300,84 @@ class Steer(BaseModel):
     strength: float  # as a fraction of the typical size of the residual state at that layer
 
 
+class FeatureSteer(BaseModel):
+    layer: int
+    index: int
+    strength: float  # as a fraction of the typical size of the residual state at that layer
+
+
+class AblationFit(BaseModel):
+    positive: list[str] = Field(min_length=2, max_length=64)
+    negative: list[str] = Field(min_length=2, max_length=64)
+    layer: int | None = Field(default=None, ge=0)
+
+
+class Ablation(AblationFit):
+    control: bool = False
+
+
+@app.post("/api/ablation/fit")
+def ablation_fit(r: AblationFit):
+    _, metadata = REFUSAL.fit(r.positive, r.negative, r.layer)
+    return metadata
+
+
+class AblationSearch(AblationFit):
+    validation: list[str] = Field(min_length=2, max_length=8)
+    controls: list[str] = Field(min_length=2, max_length=8)
+    layers: list[int] | None = Field(default=None, min_length=1, max_length=256)
+    finalists: int = Field(default=3, ge=1, le=256)
+    max_new_tokens: int = Field(default=512, ge=32, le=512)
+    max_control_kl: float = Field(default=0.5, gt=0, le=10, allow_inf_nan=False)
+
+
+@app.post("/api/ablation/search")
+def ablation_search(r: AblationSearch):
+    async def events():
+        cancelled = threading.Event()
+        messages = queue.Queue()
+
+        def work():
+            search = REFUSAL.search(**r.model_dump(exclude={"layer"}), cancel=cancelled)
+            try:
+                for event in search:
+                    if cancelled.is_set():
+                        break
+                    messages.put(event)
+            except SearchCancelled:
+                pass
+            except Exception as exc:
+                messages.put({"error": str(exc)})
+            finally:
+                search.close()
+                messages.put(None)
+
+        threading.Thread(target=work, daemon=True).start()
+        try:
+            while True:
+                try:
+                    event = messages.get_nowait()
+                except queue.Empty:
+                    await asyncio.sleep(0.05)
+                    continue
+                if event is None:
+                    return
+                yield f"data: {json.dumps(event)}\n\n"
+        finally:
+            # Stop also when the browser disconnects or navigates away, between forward passes.
+            cancelled.set()
+
+    return StreamingResponse(events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+
+
+class NeuronReq(BaseModel):
+    zero_super: bool = False
+    language: str | None = None
+    strength: float = 0.0
+    mute: str | None = "en"
+    exclude: str | None = None
+
+
 class GenReq(BaseModel):
     prompt: str
     role: str = "chat"
@@ -303,6 +387,9 @@ class GenReq(BaseModel):
     seed: int | None = None
     stop: list[str] | None = None
     steer: Steer | None = None
+    feature: FeatureSteer | None = None
+    neurons: NeuronReq | None = None
+    ablate: Ablation | None = None
 
 
 def _steer_args(m: LM, s: Steer | None):
@@ -315,14 +402,24 @@ def _steer_args(m: LM, s: Steer | None):
 
 @app.post("/api/generate")
 def generate(r: GenReq):
+    if r.ablate and (r.role != "chat" or r.steer or r.feature or r.neurons):
+        raise ValueError("Refusal ablation uses the chat model, without another intervention.")
+    if r.neurons and r.role != "base":
+        raise ValueError("The super weight and language neurons belong to the base model.")
     m = lm(r.role)
     m.require()
     steer = _steer_args(m, r.steer)
+    if r.feature and r.feature.strength != 0:
+        # Turn one SAE feature up: add its decoder direction where the SAE reads the residual stream.
+        v = SAES.direction(r.feature.layer, r.feature.index)
+        steer = (v * (r.feature.strength * m.typical_norm(r.feature.layer) / float(v.norm())), r.feature.layer)
+    plan = m.neuron_plan(**r.neurons.model_dump()) if r.neurons else None
     limit = min(r.max_new_tokens, 4096)
+    ablate = REFUSAL.direction(r.ablate.positive, r.ablate.negative, r.ablate.layer, r.ablate.control) if r.ablate else None
 
     def events():
         try:
-            for ev in m.generate(r.prompt, limit, r.temperature, r.top_p, steer, r.stop, r.seed):
+            for ev in m.generate(r.prompt, limit, r.temperature, r.top_p, steer, r.stop, r.seed, ablate=ablate, neurons=plan):
                 yield f"data: {json.dumps(ev)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
@@ -348,6 +445,54 @@ def steer_project(r: SteerProjectReq):
     half = (np.mean(pos) - np.mean(neg)) / 2 or 1
     scores = [(s - mid) / half for s in m.project(r.texts, v, r.layer)]
     return {"scores": [round(s, 3) for s in scores]}
+
+
+# ------------------------------------------------------------------ one number (super weight, language neurons)
+
+
+@app.get("/api/neurons")
+def neurons_info():
+    m = lm("base")
+    m.require()
+    if not m.neurons:
+        return {"model": m.spec.repo, "available": False}
+    cfg = m.model.config
+    return {
+        "model": m.spec.repo,
+        "available": True,
+        "super_weight": m.neurons["super_weight"],
+        "params": sum(p.numel() for p in m.model.parameters()),
+        "neurons_total": cfg.num_hidden_layers * cfg.intermediate_size,
+        "languages": {c: {"name": d["name"], "count": len(d["neurons"])} for c, d in m.neurons["languages"].items()},
+    }
+
+
+# ------------------------------------------------------------------ features (sparse autoencoders)
+
+
+@app.get("/api/sae")
+def sae_info():
+    return {"model": SAES.lm.spec.repo, "layers": SAES.layers()}
+
+
+class SaeEncodeReq(BaseModel):
+    text: str
+    layer: int
+
+
+@app.post("/api/sae/encode")
+def sae_encode(r: SaeEncodeReq):
+    return SAES.encode(r.text, r.layer)
+
+
+class SaeFeatureReq(BaseModel):
+    layer: int
+    feature: int
+
+
+@app.post("/api/sae/feature")
+def sae_feature(r: SaeFeatureReq):
+    return SAES.describe(r.layer, r.feature)
 
 
 WEB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web")
