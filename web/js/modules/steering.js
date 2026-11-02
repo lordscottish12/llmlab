@@ -157,7 +157,18 @@ export default {
       }
     }).catch(() => {});
 
-    const genBtn = h("button", { class: "btn primary", type: "button" }, "Generate both");
+    // Writing the unsteered reply as well doubles the work, which is slow on a laptop GPU; so it is optional.
+    const bothBox = h("input", { type: "checkbox" });
+    const normalBox = box("Normal", { body: [outA] });
+    const outGrid = h("div", {}, normalBox, box("Steered", { body: [outB] }));
+    const genLabel = () => (bothBox.checked ? "Generate both" : "Generate");
+    function showBoth() {
+      normalBox.hidden = !bothBox.checked;
+      outGrid.className = bothBox.checked ? "grid2 even" : "";
+      if (!ctrls.length) genBtn.textContent = genLabel();
+    }
+    bothBox.addEventListener("change", showBoth);
+    const genBtn = h("button", { class: "btn primary", type: "button" }, "Generate");
     async function generate() {
       if (ctrls.length) { ctrls.splice(0).forEach((c) => c.abort()); return; }
       genBtn.textContent = "Stop";
@@ -172,12 +183,12 @@ export default {
           await stream({ prompt, role: "chat", max_new_tokens: 160, temperature: 0.7, seed, steer: s ? steer(s) : null }, (ev) => { if (ev.text) el.textContent += ev.text; }, c.signal);
           el.classList.remove("cursor");
         };
-        await Promise.all([one(outA, 0), one(outB, strength)]);
+        await Promise.all(bothBox.checked ? [one(outA, 0), one(outB, strength)] : [one(outB, strength)]);
         msg.replaceChildren();
       } catch (e) { errorLine(msg, e); }
       outA.classList.remove("cursor"); outB.classList.remove("cursor");
       ctrls.length = 0;
-      genBtn.textContent = "Generate both";
+      genBtn.textContent = genLabel();
     }
     genBtn.addEventListener("click", generate);
 
@@ -227,11 +238,9 @@ export default {
         cls: "gap-above",
         right: presets(PROMPTS, (p) => { promptIn.value = p.text; }, { active: PROMPTS[0] }),
         body: [
-          h("div", { class: "grid2 even", style: { gap: "1rem" } }, h("label", { class: "field" }, h("span", {}, "Ask the chat model"), promptIn), h("div", { style: { display: "grid", gap: ".6rem", alignContent: "end" } }, strengthS, h("div", { class: "row" }, genBtn))),
+          h("div", { class: "grid2 even", style: { gap: "1rem" } }, h("label", { class: "field" }, h("span", {}, "Ask the chat model"), promptIn), h("div", { style: { display: "grid", gap: ".6rem", alignContent: "end" } }, strengthS, h("div", { class: "row" }, genBtn, h("label", { class: "check" }, bothBox, "Also write the normal answer, for comparison")))),
           msg,
-          h("div", { class: "grid2 even" },
-            box("Normal", { body: [outA] }),
-            box("Steered", { body: [outB] })),
+          outGrid,
         ],
       }),
       notes({
@@ -254,6 +263,7 @@ export default {
         ],
       }),
     );
+    showBoth();
     load();
     return () => ctrls.forEach((c) => c.abort());
   },

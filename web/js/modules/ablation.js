@@ -35,12 +35,21 @@ export default {
     const genBtn = h("button", { type: "button", class: "btn primary" }, "Compare replies");
     const stopBtn = h("button", { type: "button", class: "btn", hidden: true }, "Stop");
     const control = h("input", { type: "checkbox" });
+    // The normal reply doubles the wait on a slow GPU, so it is optional.
+    const normal = h("input", { type: "checkbox" });
     const out = [0, 1, 2].map(() => h("div", { class: "answer", style: { minHeight: "9rem" } }));
     const resultNotes = [0, 1, 2].map(() => h("p", { class: "small muted" }));
     const resultBoxes = ["Normal", "Candidate direction removed", "Random direction removed"].map((title, i) =>
       box(title, { body: [out[i], resultNotes[i]] }));
-    resultBoxes[2].hidden = true;
-    const replyGrid = h("div", { class: "grid2 even" }, resultBoxes);
+    const replyGrid = h("div", {}, resultBoxes);
+    // Which replies to write: 0 normal, 1 candidate removed, 2 random removed.
+    const chosen = () => [0, 1, 2].filter((i) => i === 1 || (i === 0 ? normal : control).checked);
+    function layoutReplies() {
+      const shown = chosen();
+      resultBoxes.forEach((b, i) => { b.hidden = !shown.includes(i); });
+      replyGrid.className = ["", "", "grid2 even", "grid3"][shown.length];
+    }
+    layoutReplies();
     const lines = (el) => el.value.split("\n").map((s) => s.trim()).filter(Boolean);
     const definition = () => ({ positive: lines(pos), negative: lines(neg), layer });
     const validationIn = h("textarea", { rows: 3, class: "sent" }, SEARCH_REFUSAL.join("\n"));
@@ -74,7 +83,7 @@ export default {
     neg.addEventListener("input", invalidate);
     for (const input of [pos, neg, validationIn, controlsIn, finalistsIn, klIn, lengthIn]) input.addEventListener("input", () => searchView.clear());
     prompt.addEventListener("input", clearReplies);
-    control.addEventListener("change", clearReplies);
+    for (const el of [normal, control]) el.addEventListener("change", () => { clearReplies(); layoutReplies(); });
     const layerSlider = slider("Read the direction after layer", {
       min: 0, max: 35, step: 1, value: 19, fmt: (v) => `${v + 1}`,
       oninput: (v) => { layer = v; searchView.selection(v); invalidate(); },
@@ -135,13 +144,12 @@ export default {
         if (compare && !prompt.value.trim()) throw new Error("Type a request to compare first.");
         const config = await fit(c.signal);
         if (!compare || !config || c.signal.aborted) return;
-        const includeControl = control.checked;
-        resultBoxes[2].hidden = !includeControl;
-        replyGrid.className = includeControl ? "grid3" : "grid2 even";
+        const replies = chosen();
+        layoutReplies();
         out.forEach((el) => { el.textContent = ""; });
         resultNotes.forEach((el) => { el.textContent = "Waiting…"; });
         const formatted = await post("/api/template", { messages: [{ role: "user", content: prompt.value }], enable_thinking: false }, { signal: c.signal });
-        for (let i = 0; i < (includeControl ? 3 : 2); i++) {
+        for (const i of replies) {
           if (c.signal.aborted) break;
           status.textContent = `Generating ${["the normal reply", "with the candidate direction removed", "with a random direction removed"][i]}…`;
           out[i].classList.add("cursor");
@@ -244,6 +252,7 @@ export default {
       ] })),
       box("3 · Test on a new request", { right: presets(ABLATION_PROMPTS, (p) => { prompt.value = p.text; clearReplies(); }, { active: ABLATION_PROMPTS[0] }), body: [
         field("Ask the chat model", prompt), modelNote,
+        h("label", { class: "row small" }, normal, "Also write the normal reply, for comparison"),
         h("label", { class: "row small" }, control, "Also remove a fixed random direction as a control"),
         h("div", { class: "row" }, genBtn, stopBtn), status, replyGrid,
         h("p", { class: "small muted" }, "Start with a request the normal model actually refuses. Then try the harmless controls: do ordinary abilities survive? If nothing changes, try another extraction layer or more examples. Small models and small example sets may give weak or messy effects."),
@@ -253,7 +262,7 @@ export default {
         { f: "r = normalize(mean(expected refusal) − mean(expected answer))" },
         "The dot product h · r measures the component of h along r. Subtracting (h · r)r projects h onto the space perpendicular to r. Negating r gives exactly the same ablation: this is not negative steering.",
         "Projecting the embedding and every contribution to the residual stream keeps their sum perpendicular to r, up to numerical rounding. The same direction is used at every layer. No weights are edited or retrained.",
-        "Both replies use the same prompt and greedy decoding. The optional random control removes one unrelated direction of the same unit length; it helps check whether any disruption would have changed the answer.",
+        "All replies use the same prompt and greedy decoding. The optional random control removes one unrelated direction of the same unit length; it helps check whether any disruption would have changed the answer.",
         "The automatic search uses separate fitting and validation lists. It ranks layers by a fast opening-token proxy, subject to a limit on KL divergence along the first eight positions of normal harmless replies, then uses the unmodified local model to judge generated replies from a shortlist. It selects fewer judged refusals, unclear or incomplete replies on prompts the baseline refused, using smaller harmless change to break ties. The judge sees the request and the full available reply. This is a fallible self-evaluation, not a guarantee of the globally best layer or meaningful compliance.",
         'Adapted from <a href="https://arxiv.org/abs/2406.11717" target="_blank" rel="noopener">Arditi et al. (2024), Refusal in Language Models Is Mediated by a Single Direction</a>. This classroom experiment uses Qwen3 and a smaller dataset; it is not a reproduction of the paper’s evaluation or a guarantee of generalisation.',
       ], discuss: [
