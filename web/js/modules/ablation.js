@@ -37,7 +37,9 @@ export default {
     const control = h("input", { type: "checkbox" });
     // The normal reply doubles the wait on a slow GPU, so it is optional.
     const normal = h("input", { type: "checkbox" });
-    const out = [0, 1, 2].map(() => h("div", { class: "answer", style: { minHeight: "9rem" } }));
+    let maxTok = 240;
+    const lengthSlider = slider("Max tokens per reply", { min: 20, max: 800, step: 10, value: maxTok, oninput: (v) => (maxTok = v) });
+    const out =[0, 1, 2].map(() => h("div", { class: "answer", style: { minHeight: "9rem" } }));
     const resultNotes = [0, 1, 2].map(() => h("p", { class: "small muted" }));
     const resultBoxes = ["Normal", "Candidate direction removed", "Random direction removed"].map((title, i) =>
       box(title, { body: [out[i], resultNotes[i]] }));
@@ -155,7 +157,7 @@ export default {
           out[i].classList.add("cursor");
           resultNotes[i].textContent = "Writing…";
           await stream({
-            prompt: formatted.text, role: "chat", temperature: 0, seed: 42, max_new_tokens: 240,
+            prompt: formatted.text, role: "chat", temperature: 0, seed: 42, max_new_tokens: maxTok,
             ablate: i ? { ...config, control: i === 2 } : null,
           }, (ev) => {
             if (ev.text) out[i].textContent += ev.text;
@@ -251,7 +253,7 @@ export default {
         h("p", { class: "small muted" }, "The opening proxy measures probability on common English refusal-start tokens. Finalists are judged by the same local model with ablation off: answer, refusal/redirection, or unclear. This judge can be wrong; its decisions, matched refusal wording and full replies are shown. Incomplete replies do not count as successful reductions. Inspect the replies, then use a fresh prompt below: validation results are not an unbiased test."),
       ] })),
       box("3 · Test on a new request", { right: presets(ABLATION_PROMPTS, (p) => { prompt.value = p.text; clearReplies(); }, { active: ABLATION_PROMPTS[0] }), body: [
-        field("Ask the chat model", prompt), modelNote,
+        field("Ask the chat model", prompt), modelNote, lengthSlider,
         h("label", { class: "row small" }, normal, "Also write the normal reply, for comparison"),
         h("label", { class: "row small" }, control, "Also remove a fixed random direction as a control"),
         h("div", { class: "row" }, genBtn, stopBtn), status, replyGrid,
